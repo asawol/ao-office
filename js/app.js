@@ -317,8 +317,8 @@
       var clash = false;
       chars.forEach(function (c) {
         if (c === ch) return;
-        if (Math.hypot(c.x - p.x, c.y - p.y) < 42) clash = true;
-        if (c.target && Math.hypot(c.target.x - p.x, c.target.y - p.y) < 34) clash = true;
+        if (Math.hypot(c.x - p.x, c.y - p.y) < 52) clash = true;
+        if (c.target && Math.hypot(c.target.x - p.x, c.target.y - p.y) < 40) clash = true;
       });
       if (!clash) return p;
     }
@@ -393,8 +393,8 @@
     var pool = {
       work: ['work', 'work', 'work', 'break'],
       meeting: ['meeting', 'meeting', 'meeting', 'work'],
-      cafe: ['break', 'break', 'out', 'break'],
-      focus: ['work', 'work', 'meeting', 'work']
+      cafe: ['break', 'break', 'break', 'work'],
+      focus: ['work', 'work', 'work', 'break']
     }[zone] || ['work'];
     return pool[Math.floor(Math.random() * pool.length)];
   }
@@ -1506,6 +1506,22 @@
     return moved;
   }
 
+  function nudgeChar(c, dx, dy) {
+    if (c.isAI) {
+      var nx = clamp(c.x + dx, 44, WORLD.w - 44);
+      var ny = clamp(c.y + dy, 100, WORLD.h - 34);
+      if (!blocked(nx, ny)) {
+        c.x = nx;
+        c.y = ny;
+        c.dx = nx;
+        c.dy = ny;
+      }
+      return;
+    }
+    c.dx += dx;
+    c.dy += dy;
+  }
+
   function freePoint(tx, ty) {
     tx = clamp(tx, 44, WORLD.w - 44);
     ty = clamp(ty, 100, WORLD.h - 34);
@@ -1650,7 +1666,7 @@
       }
     });
 
-    // 캐릭터끼리 겹치지 않게 부드럽게 밀어내기 (화면 위치만)
+    // 캐릭터끼리 겹치지 않게 부드럽게 밀어내기
     var arr = Array.from(chars.values());
     for (var i = 0; i < arr.length; i++) {
       for (var j = i + 1; j < arr.length; j++) {
@@ -1663,12 +1679,12 @@
           var push = (minD - dist) / 2;
           var ux = sdx / dist, uy = sdy / dist;
           if (a.id === myId) {
-            b.dx += ux * push * 2; b.dy += uy * push * 2;
+            nudgeChar(b, ux * push * 2, uy * push * 2);
           } else if (b.id === myId) {
-            a.dx -= ux * push * 2; a.dy -= uy * push * 2;
+            nudgeChar(a, -ux * push * 2, -uy * push * 2);
           } else {
-            a.dx -= ux * push; a.dy -= uy * push;
-            b.dx += ux * push; b.dy += uy * push;
+            nudgeChar(a, -ux * push, -uy * push);
+            nudgeChar(b, ux * push, uy * push);
           }
         }
       }
