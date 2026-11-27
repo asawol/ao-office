@@ -1,2095 +1,1131 @@
 /* ─────────────────────────────────────────────
-   app.js — 합동 피클 비서실
+   Cream Office — app.js
+   크림 본부 3D 오피스: 파트 현황 · 회의실 · 작업실 · 현황 · 메모
+   실시간 동기화: js/net.js (MQTT) + BroadcastChannel, 저장: localStorage
    ───────────────────────────────────────────── */
 (function () {
   'use strict';
 
-  var A = window.OfficeArt;
-  var WORLD = A.WORLD;
+  var LS_KEY = 'cream-office-v4';
+  var $ = function (sel, root) { return (root || document).querySelector(sel); };
+  var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
 
-  var PRESETS = [
-    { id: 'cream',  name: '크림',  body: '#E8469B', accent: '#7A4BE0', glow: '#FFFFFF' },
-    { id: 'mint',   name: '민트',  body: '#33C6A0', accent: '#266B8C', glow: '#E6FFF7' },
-    { id: 'lemon',  name: '레몬',  body: '#FFC93C', accent: '#E0622A', glow: '#FFF4C9' },
-    { id: 'berry',  name: '베리',  body: '#8E6BE8', accent: '#E8509B', glow: '#F2EAFF' },
-    { id: 'sky',    name: '하늘',  body: '#5EAAF0', accent: '#2E5BB8', glow: '#E6F4FF' },
-    { id: 'peach',  name: '피치',  body: '#FF9A76', accent: '#C43F6B', glow: '#FFEFE7' }
-  ];
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function uid() {
+    return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+  }
+  function clamp(n, a, b) { return Math.min(b, Math.max(a, n)); }
+  function timeLabel(ts) {
+    var d = new Date(ts);
+    var h = d.getHours(), m = d.getMinutes();
+    var ap = h < 12 ? '오전' : '오후';
+    var hh = h % 12; if (hh === 0) hh = 12;
+    return ap + ' ' + hh + ':' + (m < 10 ? '0' + m : m);
+  }
 
-  var STATUSES = [
-    { id: 'work', label: '업무중' },
-    { id: 'meeting', label: '회의중' },
-    { id: 'break', label: '자리비움' },
-    { id: 'out', label: '외근중' }
-  ];
-
-  var QUICKS = ['안녕하세요', '회의 중입니다', '자리 비웠습니다', '수고하셨습니다'];
-
-  var $ = function (s) { return document.querySelector(s); };
-  var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
-
-  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-  function nowMs() { return Date.now(); }
-
-  var Store = {
+  var store = {
     get: function (k, fb) { try { var v = localStorage.getItem(k); return v === null ? fb : v; } catch (e) { return fb; } },
     set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) { /* noop */ } },
     json: function (k, fb) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch (e) { return fb; } }
   };
 
-  function sanitizeRoom(raw) {
-    var s = String(raw || '').trim().toLowerCase();
-    s = s.replace(/[^a-z0-9\-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-    return s.slice(0, 40);
-  }
+  var PALETTE = ['#e85aa6', '#5b76e8', '#e9932f', '#2aa98a', '#7b61d9', '#c2a15a'];
 
-  function readRoom() {
-    var fromUrl = new URLSearchParams(location.search).get('room');
-    var room = sanitizeRoom(fromUrl || Store.get('pickleoffice.room', '') || 'asawol-office');
-    return room || 'asawol-office';
-  }
+  var DEFAULT_PARTS = [
+    { id: 'chief', name: '크림', role: '지휘', zone: '지휘실', accent: '#e85aa6', on: true,
+      status: '대표님 지시를 기다리는 중', line: '오늘 일정은 제가 정리해 둘게요.', anchor: [53, 18] },
+    { id: 'plan', name: '모아', role: '기획·일정', zone: '기획·일정', accent: '#5b76e8', on: true,
+      status: '이번 주 계획표 정리 중', line: '화요일 리뷰는 오전 10시로 잡아둘게요.', anchor: [31, 47] },
+    { id: 'dev', name: '코다', role: '개발·리서치', zone: '개발·리서치', accent: '#e9932f', on: true,
+      status: '경쟁사 자료 조사 중', line: '비교표 초안은 오후에 올려둘게요.', anchor: [47, 53] },
+    { id: 'ops', name: '하루', role: '총무·운영', zone: '총무·운영', accent: '#2aa98a', on: true,
+      status: '비품과 회의실 정리 중', line: '회의실 예약은 제가 챙겼어요.', anchor: [64, 44] }
+  ];
 
-  var room = readRoom();
-  Store.set('pickleoffice.room', room);
+  var SPACES = [
+    { id: 'chief', label: '지휘실', x: 52, y: 40.5, kind: 'part', name: '지휘실' },
+    { id: 'meeting', label: '대회의실', x: 20.5, y: 43, kind: 'room' },
+    { id: 'plan', label: '기획·일정', x: 30, y: 69.5, kind: 'part' },
+    { id: 'dev', label: '개발·리서치', x: 48.5, y: 60, kind: 'part' },
+    { id: 'ops', label: '총무·운영', x: 64.5, y: 51, kind: 'part' },
+    { id: 'lounge', label: '라운지', x: 77.5, y: 71.5, kind: 'room' }
+  ];
 
-  var clientId = (function () {
-    var id = null;
-    try { id = sessionStorage.getItem('pickleoffice.cid'); } catch (e) { /* noop */ }
-    if (!id) {
-      id = (window.PickleUid ? window.PickleUid() : Math.random().toString(16).slice(2));
-      try { sessionStorage.setItem('pickleoffice.cid', id); } catch (e) { /* noop */ }
+  var ROOMS = {
+    meeting: {
+      title: '대회의실',
+      desc: '유리로 나뉜 6인 회의실. 여기서 정한 일은 회의실 탭 대화로 바로 이어집니다.',
+      status: '예약 없음 · 바로 사용할 수 있어요',
+      action: '회의실로 가기',
+      prefill: ''
+    },
+    lounge: {
+      title: '라운지',
+      desc: '커피와 잠깐의 숨. 파트들이 하루에 한 번씩 여기서 쉬어갑니다.',
+      status: '조용함 · 다들 집중 중',
+      action: '다들 격려 한마디',
+      prefill: '다들 수고 많았어요 ☕'
     }
-    return id;
-  })();
-
-  var myId = clientId;
-
-  /* ── 상태 ───────────────────────────────── */
-
-  var me = {
-    id: myId,
-    name: '크림',
-    owner: '아사월',
-    body: '#E8469B',
-    accent: '#7A4BE0',
-    glow: '#FFFFFF',
-    status: 'work',
-    x: 620,
-    y: 376,
-    dx: 620,
-    dy: 376,
-    facing: 1,
-    moving: false,
-    phase: Math.random() * 6.28,
-    blink: 0,
-    nextBlink: 2 + Math.random() * 3,
-    bubble: null,
-    target: null,
-    path: [],
-    stuck: 0,
-    lastSeen: nowMs()
   };
 
-  var chars = new Map();
-  chars.set(myId, me);
-
-  var messages = [];
-  var msgIds = new Set();
-  var tasks = [];
-  var taskRev = 0;
-  var cloud = null;
-  var net = null;
-
-  var view = { cw: 800, ch: 600, dpr: 1, scale: 1 };
-  var cam = { x: WORLD.w / 2, y: WORLD.h / 2 };
-  var keys = {};
-  var lastPub = 0;
-  var lastPrune = 0;
-  var hintTimer = null;
-  var chatScrollPending = false;
-
-  /* ── 프로필 저장/복원 ───────────────────── */
-
-  function validColor(c, fb) {
-    return /^#[0-9a-fA-F]{6}$/.test(String(c || '')) ? String(c) : fb;
-  }
-
-  function loadProfile() {
-    var p = Store.json('pickleoffice.profile', null);
-    if (!p || typeof p !== 'object') return false;
-    me.name = String(p.name || '크림').slice(0, 14);
-    me.owner = String(p.owner || '아사월').slice(0, 14);
-    me.body = validColor(p.body, '#E8469B');
-    me.accent = validColor(p.accent, '#7A4BE0');
-    me.glow = validColor(p.glow, '#FFFFFF');
-    me.status = STATUSES.some(function (s) { return s.id === p.status; }) ? p.status : 'work';
-    return true;
-  }
-
-  function saveProfile() {
-    Store.set('pickleoffice.profile', JSON.stringify({
-      name: me.name,
-      owner: me.owner,
-      body: me.body,
-      accent: me.accent,
-      glow: me.glow,
-      status: me.status
-    }));
-  }
-
-  function avatarGradient(body) {
-    return 'radial-gradient(circle at 34% 28%, ' + A.lighten(body, 0.34) + ' 0%, ' + body + ' 68%, ' + A.mix(body, '#2b1a2e', 0.18) + ' 100%)';
-  }
-
-  function statusLabel(id) {
-    for (var i = 0; i < STATUSES.length; i++) if (STATUSES[i].id === id) return STATUSES[i].label;
-    return '업무중';
-  }
-
-  /* ── 상주 AI 동료 ───────────────────────── */
-
-  var AI_KEY = 'pickleoffice.aiCoworkers';
-  var AI_SPEED = 76;
-
-  var AI_ZONES = {
-    work:    { label: '워크스테이션', status: 'work' },
-    meeting: { label: '회의실', status: 'meeting' },
-    cafe:    { label: '탕비실·라운지', status: 'break' },
-    focus:   { label: '포커스 팟', status: 'work' }
-  };
-
-  var AI_PRESETS = [
-    { id: 'blue',   name: '블루',    body: '#5E8FD6', accent: '#2C4E86', glow: '#EAF2FF' },
-    { id: 'teal',   name: '틸',      body: '#46B49A', accent: '#1F6E62', glow: '#E7FFF8' },
-    { id: 'violet', name: '바이올렛', body: '#C08BE0', accent: '#6C3FA8', glow: '#F6ECFF' },
-    { id: 'amber',  name: '앰버',    body: '#E3A94A', accent: '#9A5E1E', glow: '#FFF5DF' },
-    { id: 'coral',  name: '코랄',    body: '#EA7C6B', accent: '#A83E38', glow: '#FFEDE9' },
-    { id: 'slate',  name: '슬레이트', body: '#8C99A8', accent: '#46525F', glow: '#F1F4F7' }
-  ];
-
-  var AI_DEFAULTS = [
-    { id: 'ai-minji',   name: '민지', role: '기획·일정',   zone: 'work',
-      body: '#5E8FD6', accent: '#2C4E86', glow: '#EAF2FF', spawn: [156, 296], status: 'work' },
-    { id: 'ai-dohyun',  name: '도현', role: '개발·리서치', zone: 'focus',
-      body: '#46B49A', accent: '#1F6E62', glow: '#E7FFF8', spawn: [880, 304], status: 'meeting' },
-    { id: 'ai-seoyeon', name: '서연', role: '총무·운영',   zone: 'cafe',
-      body: '#C08BE0', accent: '#6C3FA8', glow: '#F6ECFF', spawn: [180, 566], status: 'break' }
-  ];
-
-  var AI_SPOTS = {
-    work:     [[156, 296], [324, 274], [420, 300], [120, 268], [390, 300], [520, 300]],
-    meeting:  [[880, 304], [1000, 304], [780, 304], [1120, 200], [700, 250], [1060, 320]],
-    cafe:     [[180, 566], [260, 600], [300, 700], [430, 700], [520, 600], [150, 660]],
-    focus:    [[700, 640], [780, 648], [900, 648], [1020, 640], [1060, 620], [700, 430], [1120, 430]],
-    corridor: [[240, 375], [600, 375], [960, 375], [1110, 375]]
-  };
-
-  var AI_CENTER = { work: [318, 270], meeting: [942, 310], cafe: [300, 620], focus: [860, 640], corridor: [600, 375] };
-
-  var AI_LINES = {
+  var REPLIES = {
+    chief: [
+      '네, 대표님. 제가 먼저 정리해서 올려두겠습니다.',
+      '확인했습니다. 우선순위대로 진행할게요.',
+      '지금 네 파트 모두 움직이고 있어요. 마무리되면 정리해 드릴게요.',
+      '필요한 부분만 짚어 주시면 나머지는 제가 맞춰 둘게요.',
+      '오늘은 제가 먼저 움직이고, 결정이 필요한 것만 여쭙겠습니다.'
+    ],
     plan: [
-      '네, 일정표 확인해서 정리해 둘게요.',
-      '그 건 이번 주 안으로 마무리되게 챙겨 볼게요.',
-      '회의록은 제가 정리해서 공유드릴게요.',
-      '자료는 공유 폴더에 모아 둘게요. 확인해 보세요.',
-      '우선순위부터 정리해서 알려드릴게요.'
+      '일정 정리해서 공유드릴게요. 내일 오전에 한 번 더 확인하겠습니다.',
+      '이번 주 핵심은 화요일 리뷰와 목요일 보고예요.',
+      '회의는 오후 2시로 잡아둘까요? 대표님 편한 시간 알려주세요.',
+      '우선순위대로 세 개만 추렸습니다. 나머지는 다음 주로 넘겼어요.',
+      '비는 시간은 목요일 오전이에요. 그때 몰아서 잡아도 됩니다.'
     ],
     dev: [
-      '재현 경로 먼저 정리해 볼게요. 확인되면 공유드릴게요.',
-      '로그 확인해 보고 원인 정리해서 알려드릴게요.',
-      '배포 전에 테스트 한 번 더 돌려 볼게요.',
-      '관련 자료 조사해서 세 줄로 요약해 둘게요.',
-      '코드 쪽은 제가 맡아서 볼게요.'
+      '리서치 자료 세 건 정리 중입니다. 초안은 오후에 올려둘게요.',
+      '경쟁 서비스 비교표는 거의 다 됐어요. 마지막 검수만 남았습니다.',
+      '이번 안건은 기술적으로는 문제 없어 보여요. 일정만 확인하면 됩니다.',
+      '레퍼런스 링크 모아 두었습니다. 필요하실 때 말씀해 주세요.',
+      '새로 나온 사례 두 개 찾았어요. 짧게 요약해서 붙여둘게요.'
     ],
     ops: [
-      '비품은 제가 챙겨 둘게요. 필요하면 말씀해 주세요.',
-      '택배는 제가 받아서 정리해 둘게요.',
-      '이번 달 정산은 금요일까지 마무리하겠습니다.',
-      '커피 내려 둘게요. 잠깐 쉬다 오세요.',
-      '공용 공간은 제가 한번 정리하고 올게요.'
-    ],
-    creative: [
-      '시안 두 개로 정리해서 보여드릴게요.',
-      '톤은 이 방향으로 잡아 보면 좋을 것 같아요.',
-      '문구는 짧게 다듬어서 올려 둘게요.',
-      '레퍼런스 모아서 공유드릴게요.'
-    ],
-    general: [
-      '네, 그 건 제가 확인해서 알려드릴게요.',
-      '확인해 보고 정리해 둘게요.',
-      '맡아서 진행해 볼게요. 진행 상황은 공유드릴게요.'
+      '비품과 회의실 예약은 제가 챙겼습니다. 빠진 건 없어요.',
+      '대표님 자리 주변 정리해 두었어요. 필요한 서류는 데스크 위에 있습니다.',
+      '택배는 오후 4시쯤 도착 예정이에요. 받으면 알려드릴게요.',
+      '다음 주 외부 미팅 준비물 목록 확인해 두겠습니다.',
+      '커피와 다과는 내일 오전에 채워둘게요.'
     ]
   };
 
-  var AI_GREET = [
-    '네, 안녕하세요. 오늘도 잘 부탁드립니다.',
-    '어서 오세요. 필요한 일 있으면 불러 주세요.',
-    '안녕하세요. 자리 비우지 않고 있을게요.',
-    '반갑습니다. 오늘 업무도 같이 챙겨 볼게요.'
+  var GREET_REPLIES = [
+    '안녕하세요, 대표님. 오늘도 잘 부탁드립니다.',
+    '네, 대표님. 다들 자리에 있습니다.',
+    '부르셨어요? 바로 확인하겠습니다.'
   ];
 
-  var AI_THANKS = [
-    '수고 많으셨어요. 마무리도 도와드릴게요.',
-    '제가 정리해 둘게요. 고생하셨습니다.',
-    '천천히 하셔도 돼요. 나머지는 제가 볼게요.'
-  ];
+  /* ── state ─────────────────────────────── */
+  var params = new URLSearchParams(location.search);
+  var saved = store.json(LS_KEY, null) || {};
 
-  var AI_INTENTS = [
-    { re: /커피|라떼|아메리카노/, line: '커피는 제가 내려 둘게요. 잠깐 쉬다 오세요.' },
-    { re: /비품|구매|주문|소모품/, line: '비품 목록 확인해서 필요한 만큼 챙겨 둘게요.' },
-    { re: /택배|배송|수령/, line: '택배는 제가 받아서 자리에 정리해 둘게요.' },
-    { re: /정산|예산|회계|영수증/, line: '정산 자료 확인해서 금요일까지 마무리할게요.' },
-    { re: /일정|스케줄|캘린더|회의실/, line: '일정표 확인해서 겹치는 부분 정리해 둘게요.' },
-    { re: /회의록|보고서|자료|문서/, line: '자료 정리해서 공유 폴더에 올려 둘게요.' },
-    { re: /버그|에러|오류|장애/, line: '재현 경로 확인하고 원인 정리해서 알려드릴게요.' },
-    { re: /배포|릴리스|테스트/, line: '배포 전에 테스트 한 번 더 돌려 볼게요.' },
-    { re: /디자인|시안|문구|카피/, line: '시안 두 개로 정리해서 보여드릴게요.' },
-    { re: /마케팅|광고|캠페인|SNS|sns/, line: '캠페인 흐름 정리해서 공유드릴게요.' },
-    { re: /점심|식사|메뉴/, line: '점심은 근처 후보로 두 곳 정리해 둘게요.' }
-  ];
-
-  var AI_WORDS = {
-    plan: ['일정', '회의', '보고', '자료', '마감', '계획', '주간', '기획', '회의실', '데드라인'],
-    dev: ['개발', '버그', '배포', '서버', '테스트', '코드', '로그', '에러', '오류', '리서치', '조사', '기술', 'API', 'api', '데이터'],
-    ops: ['비품', '커피', '택배', '정산', '구매', '예산', '회계', '배송', '총무', '운영', '주문', '청소', '인사'],
-    creative: ['디자인', '마케팅', '광고', '문구', '브랜드', '콘텐츠', '카피', '시안', '이미지', 'SNS', 'sns', '캠페인'],
-    general: []
+  var S = {
+    name: saved.name || '크림',
+    owner: saved.owner || '아사월님의 비서',
+    accent: saved.accent || '#e85aa6',
+    room: params.get('room') || saved.room || 'asawol-office',
+    motion: saved.motion !== false,
+    tab: 'office',
+    parts: Array.isArray(saved.parts) && saved.parts.length ? saved.parts : DEFAULT_PARTS.slice(),
+    memos: Array.isArray(saved.memos) ? saved.memos : [
+      { id: uid(), text: '주간 보고 초안 다듬기 — 목요일 오전까지', done: false, by: '모아', at: Date.now() - 6e5 },
+      { id: uid(), text: '신규 리서치 링크 정리해서 공유', done: false, by: '코다', at: Date.now() - 4e5 },
+      { id: uid(), text: '회의실 예약 · 다과 준비', done: true, by: '하루', at: Date.now() - 2e5 }
+    ],
+    chat: Array.isArray(saved.chat) ? saved.chat.slice(-60) : [],
+    memoRev: saved.memoRev || Date.now()
   };
-
-  var aiTeam = [];
-  var aiPreset = AI_PRESETS[3];
-  var lastAIReplyAt = 0;
-  var lastAITaskAck = 0;
-  var aiGreeted = false;
-
-  function perfNow() { return performance.now() / 1000; }
-
-  function aiDefaultFor(id) {
-    for (var i = 0; i < AI_DEFAULTS.length; i++) if (AI_DEFAULTS[i].id === id) return AI_DEFAULTS[i];
-    return null;
-  }
-
-  function normalizeAI(cfg) {
-    if (!cfg || typeof cfg !== 'object') return null;
-    var name = cleanText(cfg.name, 10);
-    if (!name) return null;
-    var zone = AI_ZONES[cfg.zone] ? cfg.zone : 'work';
-    return {
-      id: String(cfg.id || ('ai' + nowMs().toString(36) + Math.random().toString(36).slice(2, 5))),
-      name: name,
-      role: cleanText(cfg.role, 16) || '동료',
-      zone: zone,
-      body: validColor(cfg.body, '#5E8FD6'),
-      accent: validColor(cfg.accent, '#2C4E86'),
-      glow: validColor(cfg.glow, '#FFFFFF'),
-      enabled: cfg.enabled !== false
-    };
-  }
-
-  function saveAITeam() {
-    Store.set(AI_KEY, JSON.stringify(aiTeam));
-  }
-
-  function loadAITeam() {
-    var saved = Store.json(AI_KEY, null);
-    if (!Array.isArray(saved)) {
-      aiTeam = [];
-      AI_DEFAULTS.forEach(function (d) {
-        var cfg = normalizeAI(d);
-        if (cfg) aiTeam.push(cfg);
-      });
-      saveAITeam();
-      return;
+  S.parts.forEach(function (p) {
+    if (!p.anchor) {
+      var sp = SPACES.filter(function (s) { return s.id === p.id; })[0];
+      p.anchor = sp ? [sp.x, sp.y - 12] : [50, 45];
     }
-    aiTeam = [];
-    saved.forEach(function (cfg) {
-      var n = normalizeAI(cfg);
-      if (n) aiTeam.push(n);
-    });
+  });
+
+  function save() {
+    store.set(LS_KEY, JSON.stringify({
+      name: S.name, owner: S.owner, accent: S.accent, room: S.room,
+      motion: S.motion, parts: S.parts, memos: S.memos.slice(0, 80),
+      chat: S.chat.slice(-60), memoRev: S.memoRev
+    }));
   }
+  var saveTimer = null;
+  function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 250); }
 
-  function aiPickSpot(zone, ch) {
-    var list = AI_SPOTS[zone] || AI_SPOTS.work;
-    var shuffled = list.slice().sort(function () { return Math.random() - 0.5; }).slice(0, 3);
-    for (var i = 0; i < shuffled.length; i++) {
-      var p = freePoint(shuffled[i][0] + (Math.random() - 0.5) * 20, shuffled[i][1] + (Math.random() - 0.5) * 16);
-      if (!p) continue;
-      var clash = false;
-      chars.forEach(function (c) {
-        if (c === ch) return;
-        if (Math.hypot(c.x - p.x, c.y - p.y) < 52) clash = true;
-        if (c.target && Math.hypot(c.target.x - p.x, c.target.y - p.y) < 40) clash = true;
-      });
-      if (!clash) return p;
-    }
-    var center = AI_CENTER[zone] || AI_CENTER.work;
-    return freePoint(center[0], center[1]);
+  function level() {
+    var sent = S.chat.filter(function (m) { return m.mine; }).length;
+    return clamp(2 + Math.floor(sent / 25), 2, 9);
   }
-
-  function attachAI(cfg) {
-    var existing = chars.get(cfg.id);
-    if (existing) {
-      existing.name = cfg.name;
-      existing.role = cfg.role;
-      existing.body = cfg.body;
-      existing.accent = cfg.accent;
-      existing.glow = cfg.glow;
-      existing.homeZone = cfg.zone;
-      return existing;
-    }
-    var def = aiDefaultFor(cfg.id);
-    var spawn = def && def.spawn ? freePoint(def.spawn[0], def.spawn[1]) : null;
-    if (!spawn) spawn = aiPickSpot(cfg.zone, null);
-    if (!spawn) spawn = { x: 600, y: 375 };
-    var ch = {
-      id: cfg.id,
-      name: cfg.name,
-      role: cfg.role,
-      isAI: true,
-      owner: '',
-      body: cfg.body,
-      accent: cfg.accent,
-      glow: cfg.glow,
-      status: (def && def.status) || (AI_ZONES[cfg.zone] ? AI_ZONES[cfg.zone].status : 'work'),
-      x: spawn.x,
-      y: spawn.y,
-      dx: spawn.x,
-      dy: spawn.y,
-      facing: Math.random() < 0.5 ? -1 : 1,
-      moving: false,
-      phase: Math.random() * 6.28,
-      blink: 0,
-      nextBlink: 2 + Math.random() * 3,
-      bubble: null,
-      path: [],
-      target: null,
-      stuck: 0,
-      lastSeen: Infinity,
-      homeZone: cfg.zone,
-      destZone: null,
-      nextThink: perfNow() + 1.6 + Math.random() * 3.4
-    };
-    chars.set(ch.id, ch);
-    return ch;
-  }
-
-  function syncAITeam() {
-    aiTeam.forEach(function (cfg) {
-      if (cfg.enabled) attachAI(cfg);
-      else if (chars.has(cfg.id)) chars.delete(cfg.id);
-    });
-    Array.from(chars.values()).forEach(function (c) {
-      if (!c.isAI) return;
-      var keep = false;
-      for (var i = 0; i < aiTeam.length; i++) {
-        if (aiTeam[i].id === c.id && aiTeam[i].enabled) keep = true;
-      }
-      if (!keep) chars.delete(c.id);
-    });
-    renderRoster();
-  }
-
-  function pickStatusForZone(zone) {
-    var pool = {
-      work: ['work', 'work', 'work', 'work', 'break'],
-      meeting: ['meeting', 'meeting', 'meeting', 'meeting', 'work'],
-      cafe: ['break', 'break', 'break', 'work'],
-      focus: ['work', 'work', 'work', 'work', 'break']
-    }[zone] || ['work'];
-    return pool[Math.floor(Math.random() * pool.length)];
-  }
-
-  function zoneAt(x, y) {
-    var keys = { work: 'work', meeting: 'meeting', pantry: 'cafe', focus: 'focus' };
-    var order = ['work', 'meeting', 'pantry', 'focus'];
-    for (var i = 0; i < order.length; i++) {
-      var r = A.ROOMS[order[i]];
-      if (!r) continue;
-      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return keys[order[i]];
-    }
-    return 'corridor';
-  }
-
-  function aiArrive(ch, now) {
-    var zone = ch.destZone || ch.homeZone;
-    ch.status = pickStatusForZone(zone);
-    ch.nextThink = now + 6 + Math.random() * 12;
-    ch.destZone = null;
-    renderRoster();
-  }
-
-  function aiThink(ch, now) {
-    var r = Math.random();
-    if (r < 0.16) {
-      var here = zoneAt(ch.x, ch.y);
-      ch.status = pickStatusForZone(here === 'corridor' ? ch.homeZone : here);
-      renderRoster();
-      ch.nextThink = now + 5 + Math.random() * 9;
-      return;
-    }
-    var zone;
-    if (r < 0.58) {
-      zone = ch.homeZone;
-    } else if (r < 0.70) {
-      zone = 'corridor';
-    } else {
-      var others = ['work', 'meeting', 'cafe', 'focus'].filter(function (z) { return z !== ch.homeZone; });
-      zone = others[Math.floor(Math.random() * others.length)] || 'corridor';
-    }
-    var spot = aiPickSpot(zone, ch);
-    if (!spot) {
-      ch.nextThink = now + 3;
-      return;
-    }
-    var path = null;
-    try { path = findPath(ch.x, ch.y, spot.x, spot.y); } catch (e) { path = null; }
-    ch.path = path && path.length ? path : [spot];
-    ch.target = ch.path[0];
-    ch.destZone = zone === 'corridor' ? ch.homeZone : zone;
-    ch.stuck = 0;
-    ch.moving = true;
-  }
-
-  function updateAI(now, dt) {
-    chars.forEach(function (ch) {
-      if (!ch.isAI) return;
-      if (ch.target) {
-        var dx = ch.target.x - ch.x;
-        var dy = ch.target.y - ch.y;
-        var dist = Math.hypot(dx, dy);
-        if (dist < 4) {
-          ch.path.shift();
-          ch.target = ch.path.length ? ch.path[0] : null;
-          if (!ch.target) aiArrive(ch, now);
-        } else {
-          var step = Math.min(dist, AI_SPEED * dt);
-          var bx = ch.x, by = ch.y;
-          tryStep(ch, (dx / dist) * step, (dy / dist) * step);
-          var moved = Math.hypot(ch.x - bx, ch.y - by);
-          if (moved < step * 0.25) {
-            ch.stuck += dt;
-            if (ch.stuck > 0.5) {
-              ch.target = null;
-              ch.path = [];
-              ch.stuck = 0;
-              ch.nextThink = now + 1.2 + Math.random() * 2;
-            }
-          } else {
-            ch.stuck = 0;
-          }
-          if (Math.abs(dx) > 2) ch.facing = dx < 0 ? -1 : 1;
-          ch.moving = true;
-        }
-      } else {
-        ch.moving = false;
-      }
-      ch.dx = ch.x;
-      ch.dy = ch.y;
-      if (!ch.target && now >= ch.nextThink) aiThink(ch, now);
-    });
-  }
-
-  function aiRoleKind(ch) {
-    var r = (ch.role || '') + ' ' + (ch.name || '');
-    if (/총무|운영|재무|회계|인사|구매|비품|경리/.test(r)) return 'ops';
-    if (/개발|리서치|연구|기술|엔지니어|데이터|IT/.test(r)) return 'dev';
-    if (/마케팅|디자인|영업|광고|브랜드|콘텐츠|편집|SNS/.test(r)) return 'creative';
-    if (/기획|일정|비서|스케줄|PM|피엠/.test(r)) return 'plan';
-    return 'general';
-  }
-
-  function pickLine(arr, fallback) {
-    if (!arr || !arr.length) return fallback || '네, 확인해서 알려드릴게요.';
-    return arr[Math.floor(Math.random() * arr.length)];
-  }
-
-  function aiReplyLine(ch, text) {
-    if (/고마|감사|수고/.test(text)) return pickLine(AI_THANKS);
-    if (/안녕|반가|하이|좋은 아침/.test(text)) return pickLine(AI_GREET);
-    for (var i = 0; i < AI_INTENTS.length; i++) {
-      if (AI_INTENTS[i].re.test(text)) return AI_INTENTS[i].line;
-    }
-    var kind = aiRoleKind(ch);
-    var line = pickLine(AI_LINES[kind]);
-    if (kind === 'general' && ch.role) line = ch.role + ' 쪽은 제가 보고 있어요. ' + line;
-    return line;
-  }
-
-  function aiSay(ch, text, delay) {
-    var go = function () {
-      if (!chars.has(ch.id)) return;
-      var t = cleanText(text, 140);
-      if (!t) return;
-      addMessage({
-        id: 'aim' + nowMs() + Math.random().toString(16).slice(2, 6),
-        from: ch.id,
-        name: ch.name,
-        body: ch.body,
-        text: t,
-        at: nowMs(),
-        ai: true
-      });
-    };
-    if (delay) setTimeout(go, delay);
-    else go();
-  }
-
-  function aiNearest(ais) {
-    var best = ais[0];
-    var bd = Infinity;
-    ais.forEach(function (c) {
-      var d = Math.hypot(c.x - me.x, c.y - me.y);
-      if (d < bd) { bd = d; best = c; }
-    });
-    return best;
-  }
-
-  function aiScore(ch, text) {
-    var kind = aiRoleKind(ch);
-    var words = AI_WORDS[kind] || [];
-    var s = 0;
-    for (var i = 0; i < words.length; i++) if (text.indexOf(words[i]) !== -1) s += 2;
-    var zone = AI_ZONES[ch.homeZone];
-    if (zone && text.indexOf(zone.label) !== -1) s += 2;
-    if (Math.hypot(ch.x - me.x, ch.y - me.y) < 240) s += 1;
-    return s;
-  }
-
-  function handleAIChat(text) {
-    var t = cleanText(text, 140);
-    if (!t) return;
-    var ais = [];
-    chars.forEach(function (c) { if (c.isAI) ais.push(c); });
-    if (!ais.length) return;
-
-    var now = perfNow();
-    var mentioned = null;
-    for (var i = 0; i < ais.length; i++) {
-      if (t.indexOf(ais[i].name) !== -1) { mentioned = ais[i]; break; }
-    }
-    var greet = /안녕|반가|하이|좋은 아침|ㅎㅇ/.test(t);
-    var thanks = /고마|감사|수고/.test(t);
-    var question = /[?？]|어때|어떻게|뭐|무엇|누가|언제|어디|가능|확인|정리|진행|도와|부탁|알려|있어|있나|될까|할까|줄래|해줘|해 줘|줘|공유|체크|검토|준비/.test(t);
-
-    if (mentioned) {
-      mentioned.facing = mentioned.x < me.x ? 1 : -1;
-      aiSay(mentioned, aiReplyLine(mentioned, t), 650 + Math.random() * 700);
-      lastAIReplyAt = now;
-      return;
-    }
-    if (thanks || greet) {
-      if (now - lastAIReplyAt < 3) return;
-      var hello = aiNearest(ais);
-      hello.facing = hello.x < me.x ? 1 : -1;
-      aiSay(hello, pickLine(thanks ? AI_THANKS : AI_GREET), 700 + Math.random() * 700);
-      lastAIReplyAt = now;
-      return;
-    }
-    if (!question) {
-      if (Math.random() < 0.18 && now - lastAIReplyAt > 12) {
-        var ack = aiNearest(ais);
-        ack.facing = ack.x < me.x ? 1 : -1;
-        aiSay(ack, '네, 확인했습니다.', 900 + Math.random() * 900);
-        lastAIReplyAt = now;
-      }
-      return;
-    }
-    if (now - lastAIReplyAt < 1.2) return;
-
-    var best = null;
-    var bestScore = -1;
-    ais.forEach(function (c) {
-      var s = aiScore(c, t);
-      if (s > bestScore) { bestScore = s; best = c; }
-    });
-    if (!best) best = aiNearest(ais);
-    if (Math.random() < 0.9) {
-      best.facing = best.x < me.x ? 1 : -1;
-      aiSay(best, aiReplyLine(best, t), 1000 + Math.random() * 1200);
-      lastAIReplyAt = now;
-    }
-  }
-
-  function aiAckTask(text) {
-    var now = perfNow();
-    if (now - lastAITaskAck < 24) return;
-    var ais = [];
-    chars.forEach(function (c) { if (c.isAI) ais.push(c); });
-    if (!ais.length) return;
-    if (Math.random() > 0.62) return;
-    lastAITaskAck = now;
-
-    var best = null;
-    var bestScore = -1;
-    ais.forEach(function (c) {
-      var s = aiScore(c, text);
-      if (s > bestScore) { bestScore = s; best = c; }
-    });
-    if (!best) best = aiNearest(ais);
-    var verb = {
-      plan: '일정에 넣어 둘게요',
-      dev: '관련해서 확인해 볼게요',
-      ops: '제가 챙겨 둘게요',
-      creative: '참고해서 정리해 둘게요',
-      general: '확인해 둘게요'
-    }[aiRoleKind(best)] || '확인해 둘게요';
-    aiSay(best, '‘' + cleanText(text, 20) + '’ 메모 확인했어요. ' + verb + '.', 900 + Math.random() * 700);
-  }
-
-  function scheduleAIGreeting(delay) {
-    try { if (sessionStorage.getItem('pickleoffice.aiGreeted')) return; } catch (e) { /* noop */ }
-    setTimeout(function () {
-      if (aiGreeted) return;
-      var ais = [];
-      chars.forEach(function (c) { if (c.isAI) ais.push(c); });
-      if (!ais.length) return;
-      aiGreeted = true;
-      try { sessionStorage.setItem('pickleoffice.aiGreeted', '1'); } catch (e) { /* noop */ }
-      var ch = ais[0];
-      aiSay(ch, '안녕하세요, ' + ch.name + '입니다. 필요한 일은 이름을 불러 주세요.', 0);
-    }, delay || 2600);
-  }
-
-  function renderTeamList() {
-    var listEl = $('#teamList');
-    if (!listEl) return;
-    listEl.innerHTML = '';
-    var active = aiTeam.filter(function (a) { return a.enabled; }).length;
-    var countEl = $('#teamCount');
-    if (countEl) countEl.textContent = active + '명 활동 중';
-
-    if (!aiTeam.length) {
-      var p = document.createElement('li');
-      p.className = 'team-empty';
-      p.textContent = '아직 AI 동료가 없습니다. 아래에서 한 명 추가해 보세요.';
-      listEl.appendChild(p);
-      return;
-    }
-
-    aiTeam.forEach(function (cfg) {
-      var li = document.createElement('li');
-      li.className = 'team-item' + (cfg.enabled ? '' : ' is-off');
-
-      var av = document.createElement('span');
-      av.className = 'roster-avatar';
-      av.style.background = avatarGradient(cfg.body);
-
-      var meta = document.createElement('div');
-      meta.className = 'team-meta';
-      var strong = document.createElement('strong');
-      strong.textContent = cfg.name;
-      var badge = document.createElement('span');
-      badge.className = 'ai-badge';
-      badge.textContent = 'AI';
-      strong.appendChild(badge);
-      var sub = document.createElement('span');
-      sub.textContent = cfg.role + ' · ' + (AI_ZONES[cfg.zone] ? AI_ZONES[cfg.zone].label : '사무실');
-      meta.appendChild(strong);
-      meta.appendChild(sub);
-
-      var sw = document.createElement('button');
-      sw.type = 'button';
-      sw.className = 'team-switch';
-      sw.setAttribute('role', 'switch');
-      sw.setAttribute('aria-checked', cfg.enabled ? 'true' : 'false');
-      sw.title = cfg.enabled ? '자리 비우기' : '다시 부르기';
-      sw.setAttribute('aria-label', cfg.name + (cfg.enabled ? ' 자리 비우기' : ' 다시 부르기'));
-      sw.addEventListener('click', function () {
-        cfg.enabled = !cfg.enabled;
-        saveAITeam();
-        syncAITeam();
-        renderTeamList();
-        showMini(cfg.name + (cfg.enabled ? ' 님이 자리로 돌아왔습니다' : ' 님이 자리를 비웠습니다'));
-      });
-
-      var del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'team-del';
-      del.textContent = '✕';
-      del.title = '팀에서 내보내기';
-      del.setAttribute('aria-label', cfg.name + ' 팀에서 내보내기');
-      del.addEventListener('click', function () {
-        aiTeam = aiTeam.filter(function (a) { return a.id !== cfg.id; });
-        saveAITeam();
-        syncAITeam();
-        renderTeamList();
-        showMini(cfg.name + ' 님을 팀에서 내보냈습니다');
-      });
-
-      li.appendChild(av);
-      li.appendChild(meta);
-      li.appendChild(sw);
-      li.appendChild(del);
-      listEl.appendChild(li);
-    });
-  }
-
-  function buildAIPresets() {
-    var row = $('#aiPresetRow');
-    if (!row) return;
-    row.innerHTML = '';
-    AI_PRESETS.forEach(function (p) {
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'preset' + (aiPreset.id === p.id ? ' is-active' : '');
-      var sw = document.createElement('span');
-      sw.className = 'swatch';
-      sw.style.background = p.body;
-      sw.style.setProperty('--acc', p.accent);
-      b.appendChild(sw);
-      b.appendChild(document.createTextNode(p.name));
-      b.addEventListener('click', function () {
-        aiPreset = p;
-        Array.prototype.forEach.call(row.children, function (el) { el.classList.remove('is-active'); });
-        b.classList.add('is-active');
-      });
-      row.appendChild(b);
-    });
-  }
-
-  function openTeam() {
-    renderTeamList();
-    buildAIPresets();
-    teamDlg.showModal();
-  }
-
-  function addAIFromForm() {
-    var name = cleanText($('#aiName').value, 10);
-    if (!name) {
-      showMini('이름을 입력해 주세요');
-      $('#aiName').focus();
-      return;
-    }
-    if (aiTeam.some(function (a) { return a.name === name; })) {
-      showMini('같은 이름의 동료가 이미 있습니다');
-      $('#aiName').focus();
-      return;
-    }
-    var role = cleanText($('#aiRole').value, 16) || '동료';
-    var zone = AI_ZONES[$('#aiZone').value] ? $('#aiZone').value : 'work';
-    var cfg = normalizeAI({
-      name: name,
-      role: role,
-      zone: zone,
-      body: aiPreset.body,
-      accent: aiPreset.accent,
-      glow: aiPreset.glow,
-      enabled: true
-    });
-    if (!cfg) return;
-    aiTeam.push(cfg);
-    saveAITeam();
-    var ch = attachAI(cfg);
-    renderRoster();
-    renderTeamList();
-    $('#aiName').value = '';
-    $('#aiRole').value = '';
-    showToast(name + ' 님을 팀에 추가했습니다');
-    if (ch) aiSay(ch, '안녕하세요, ' + name + '입니다. ' + role + ' 쪽을 맡을게요.', 500);
-  }
-
-  /* ── 화면 요소 ──────────────────────────── */
-
-  var canvas = $('#office');
-  var ctx = canvas.getContext('2d');
-  var stage = $('#stage');
-  var netPill = $('#netPill');
-  var netText = $('#netText');
-  var rosterList = $('#rosterList');
-  var rosterStrip = $('#rosterStrip');
-  var rosterCount = $('#rosterCount');
-  var rosterEmpty = $('#rosterEmpty');
-  var chatList = $('#chatList');
-  var chatForm = $('#chatForm');
-  var chatInput = $('#chatInput');
-  var taskList = $('#taskList');
-  var taskForm = $('#taskForm');
-  var taskInput = $('#taskInput');
-  var taskCount = $('#taskCount');
-  var toastEl = $('#toast');
-  var hintEl = $('#hint');
-  var teamBtn = $('#teamBtn');
-  var teamDlg = $('#teamDlg');
-
-  $('.room-hash').textContent = '#';
-  $('#roomLabel').textContent = room;
-
-  /* ── 토스트 ─────────────────────────────── */
-
-  var toastTimer = null;
-  function showToast(text) {
-    toastEl.textContent = text;
-    toastEl.classList.add('is-show');
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { toastEl.classList.remove('is-show'); }, 2400);
-  }
-
-  var miniToast = document.createElement('div');
-  miniToast.className = 'mini-toast';
-  document.body.appendChild(miniToast);
-  var miniTimer = null;
-  function showMini(text) {
-    miniToast.textContent = text;
-    miniToast.classList.add('is-show');
-    if (miniTimer) clearTimeout(miniTimer);
-    miniTimer = setTimeout(function () { miniToast.classList.remove('is-show'); }, 2000);
-  }
-
-  /* ── 내 카드 & 명단 ──────────────────────── */
-
-  function renderMe() {
-    $('#myName').textContent = me.name;
-    $('#myOwner').textContent = me.owner ? me.owner + '님의 비서' : '비서';
-    $('#myAvatar').style.background = avatarGradient(me.body);
-    $('#btnAvatar').style.background = avatarGradient(me.body);
-    document.title = me.name + ' · 합동 피클 비서실';
-
-    var row = $('#statusRow');
-    row.innerHTML = '';
-    STATUSES.forEach(function (s) {
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'status-chip' + (me.status === s.id ? ' is-active' : '');
-      b.dataset.status = s.id;
-      var dot = document.createElement('i');
-      dot.className = 'pill-dot';
-      b.appendChild(dot);
-      b.appendChild(document.createTextNode(s.label));
-      b.addEventListener('click', function () { setStatus(s.id); });
-      row.appendChild(b);
-    });
-  }
-
-  var rosterSig = '';
-
-  function rosterSignature() {
-    return Array.from(chars.values()).map(function (c) {
-      return c.id + '|' + c.name + '|' + c.owner + '|' + c.status + '|' + c.body + '|' + (c.isAI ? '1' : '0') + '|' + (c.role || '');
-    }).join('~');
-  }
-
-  function renderRoster() {
-    var sig = rosterSignature();
-    if (sig === rosterSig) return;
-    rosterSig = sig;
-    var list = Array.from(chars.values()).sort(function (a, b) {
-      if (a.id === myId) return -1;
-      if (b.id === myId) return 1;
-      return a.name.localeCompare(b.name);
-    });
-
-    rosterList.innerHTML = '';
-    rosterStrip.innerHTML = '';
-
-    list.forEach(function (c) {
-      var li = document.createElement('li');
-      li.className = 'roster-item' + (c.isAI ? ' is-ai' : '');
-      var av = document.createElement('span');
-      av.className = 'roster-avatar';
-      av.style.background = avatarGradient(c.body);
-      var meta = document.createElement('div');
-      meta.className = 'roster-meta';
-      var nm = document.createElement('strong');
-      nm.textContent = c.name + (c.id === myId ? ' (나)' : '');
-      if (c.isAI) {
-        var badge = document.createElement('span');
-        badge.className = 'ai-badge';
-        badge.textContent = 'AI';
-        nm.appendChild(badge);
-      }
-      var ow = document.createElement('span');
-      ow.textContent = c.isAI
-        ? ((c.role ? c.role + ' · ' : '') + 'AI 동료')
-        : (c.owner ? c.owner + '님의 비서' : '비서');
-      meta.appendChild(nm);
-      meta.appendChild(ow);
-      var st = document.createElement('span');
-      st.className = 'roster-status';
-      st.dataset.status = c.status;
-      st.textContent = statusLabel(c.status);
-      li.appendChild(av);
-      li.appendChild(meta);
-      li.appendChild(st);
-      rosterList.appendChild(li);
-
-      var chip = document.createElement('span');
-      chip.className = 'strip-chip';
-      var av2 = document.createElement('span');
-      av2.className = 'roster-avatar';
-      av2.style.background = avatarGradient(c.body);
-      var dot = document.createElement('i');
-      dot.className = 'dot-status';
-      dot.style.background = A.STATUS_COLOR[c.status] || '#2FBF94';
-      var nm2 = document.createElement('span');
-      nm2.textContent = c.name + (c.id === myId ? ' (나)' : '');
-      if (c.isAI) {
-        var b2 = document.createElement('span');
-        b2.className = 'ai-badge';
-        b2.textContent = 'AI';
-        nm2.appendChild(b2);
-      }
-      chip.appendChild(av2);
-      chip.appendChild(nm2);
-      chip.appendChild(dot);
-      rosterStrip.appendChild(chip);
-    });
-
-    rosterCount.textContent = String(list.length);
-    rosterEmpty.hidden = list.length > 1;  }
-
-  /* ── 채팅 ───────────────────────────────── */
-
-  function timeStr(ts) {
-    var d = new Date(ts || nowMs());
-    var h = d.getHours();
-    var m = d.getMinutes();
-    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
-  }
-
-  function cleanText(t, max) {
-    return String(t || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
-  }
-
-  function addMessage(m) {
-    if (!m || !m.id || msgIds.has(m.id)) return;
-    msgIds.add(m.id);
-    messages.push(m);
-    if (messages.length > 120) {
-      var dropped = messages.splice(0, messages.length - 120);
-      dropped.forEach(function (d) { msgIds.delete(d.id); });
-    }
-    appendChatNode(m);
-    if (!m.system) saveChatLocal();
-    if (m.from === myId) return;
-    var c = chars.get(m.from);
-    if (c && !m.hist) {
-      c.bubble = { text: m.text, until: performance.now() / 1000 + 7 };
-    }
-  }
-
-  function appendSystem(text) {
-    addMessage({ id: 'sys' + nowMs() + Math.random().toString(16).slice(2, 6), system: true, text: text, at: nowMs() });
-  }
-
-  function appendChatNode(m) {
-    if (m.system) {
-      var s = document.createElement('li');
-      s.className = 'chat-system';
-      s.textContent = m.text;
-      chatList.appendChild(s);
-    } else {
-      var li = document.createElement('li');
-      li.className = 'chat-item' + (m.from === myId ? ' is-mine' : '');
-      var av = document.createElement('span');
-      av.className = 'chat-avatar';
-      av.style.background = avatarGradient(m.body || '#B9AEC8');
-      var main = document.createElement('div');
-      main.className = 'chat-main';
-      var nm = document.createElement('span');
-      nm.className = 'chat-name';
-      nm.textContent = (m.from === myId ? '나' : (m.name || '피클')) + ' · ' + timeStr(m.at);
-      var bub = document.createElement('div');
-      bub.className = 'chat-bubble';
-      bub.textContent = m.text;
-      main.appendChild(nm);
-      main.appendChild(bub);
-      li.appendChild(av);
-      li.appendChild(main);
-      chatList.appendChild(li);
-    }
-    chatScrollPending = true;
-  }
-
-  function flushChatScroll() {
-    if (!chatScrollPending) return;
-    chatScrollPending = false;
-    chatList.scrollTop = chatList.scrollHeight;
-  }
-
-  function saveChatLocal() {
-    try {
-      Store.set('pickleoffice.messages.' + room, JSON.stringify(messages.slice(-50).filter(function (m) { return !m.system; })));
-    } catch (e) { /* noop */ }
-  }
-
-  function sendChat(text) {
-    var t = cleanText(text, 140);
-    if (!t) return;
-    var msg = net.send({ kind: 'chat', text: t, name: me.name, body: me.body });
-    addMessage({ id: msg.id, from: myId, name: me.name, body: me.body, text: t, at: msg.at });
-    me.bubble = { text: t, until: performance.now() / 1000 + 7 };
-    if (cloud && cloud.url) cloud.saveMessages(messages.filter(function (m) { return !m.system; }));
-    saveChatLocal();
-    handleAIChat(t);
-  }
-
-  /* ── 업무 메모 ──────────────────────────── */
-
-  function renderTasks() {
-    taskList.innerHTML = '';
-    if (!tasks.length) {
-      var p = document.createElement('li');
-      p.className = 'task-empty';
-      p.textContent = '등록된 업무가 없습니다.';
-      taskList.appendChild(p);
-    }
-    tasks.forEach(function (t) {
-      var li = document.createElement('li');
-      li.className = 'task-item' + (t.done ? ' is-done' : '');
-
-      var cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.className = 'task-check';
-      cb.checked = !!t.done;
-      cb.addEventListener('change', function () {
-        t.done = cb.checked;
-        tasksChanged(true);
-      });
-
-      var txt = document.createElement('span');
-      txt.className = 'task-text';
-      txt.textContent = t.text;
-
-      var by = document.createElement('span');
-      by.className = 'task-by';
-      by.textContent = t.by ? t.by : '';
-
-      var del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'task-del';
-      del.textContent = '✕';
-      del.setAttribute('aria-label', '할 일 지우기');
-      del.addEventListener('click', function () {
-        tasks = tasks.filter(function (x) { return x.id !== t.id; });
-        tasksChanged(true);
-      });
-
-      li.appendChild(cb);
-      li.appendChild(txt);
-      if (t.by) li.appendChild(by);
-      li.appendChild(del);
-      taskList.appendChild(li);
-    });
-
-    var open = tasks.filter(function (t) { return !t.done; }).length;
-    taskCount.textContent = String(open);
-  }
-
-  function tasksChanged(broadcast) {
-    taskRev = nowMs();
-    renderTasks();
-    Store.set('pickleoffice.tasks.' + room, JSON.stringify(tasks));
-    if (broadcast !== false) net.send({ kind: 'tasks', items: tasks, rev: taskRev });
-    if (cloud && cloud.url) cloud.saveTasks(tasks, taskRev);
-  }
-
-  /* ── 상태 변경 ──────────────────────────── */
-
-  function setStatus(id) {
-    me.status = id;
-    saveProfile();
-    renderMe();
-    renderRoster();
-    net.send({ kind: 'state', x: Math.round(me.x), y: Math.round(me.y), moving: false, facing: me.facing, status: me.status, name: me.name, owner: me.owner, body: me.body, accent: me.accent, glow: me.glow });
-  }
-
-  /* ── 네트워크 ───────────────────────────── */
-
-  function sendState(force) {
-    var t = nowMs();
-    if (!force && t - lastPub < (me.moving ? 130 : 2200)) return;
-    lastPub = t;
-    net.send({
-      kind: 'state',
-      x: Math.round(me.x),
-      y: Math.round(me.y),
-      moving: me.moving,
-      facing: me.facing,
-      status: me.status,
-      name: me.name,
-      owner: me.owner,
-      body: me.body,
-      accent: me.accent,
-      glow: me.glow
-    });
-  }
-
-  function ensureChar(msg) {
-    var id = msg.from;
-    var c = chars.get(id);
-    if (c) return c;
-    c = {
-      id: id,
-      name: cleanText(msg.name, 14) || '피클',
-      owner: cleanText(msg.owner, 14) || '',
-      body: validColor(msg.body, '#B9AEC8'),
-      accent: validColor(msg.accent, '#7A4BE0'),
-      glow: validColor(msg.glow, '#FFFFFF'),
-      status: STATUSES.some(function (s) { return s.id === msg.status; }) ? msg.status : 'work',
-      x: Number(msg.x) || 620,
-      y: Number(msg.y) || 376,
-      dx: Number(msg.x) || 620,
-      dy: Number(msg.y) || 376,
-      facing: Number(msg.facing) < 0 ? -1 : 1,
-      moving: !!msg.moving,
-      phase: Math.random() * 6.28,
-      blink: 0,
-      nextBlink: 2 + Math.random() * 3,
-      bubble: null,
-      lastSeen: nowMs()
-    };
-    chars.set(id, c);
-    renderRoster();
-    appendSystem(c.name + ' 피클이 오피스에 들어왔습니다');
-    return c;
-  }
-
-  function removeChar(id) {
-    var c = chars.get(id);
-    if (!c) return;
-    chars.delete(id);
-    renderRoster();
-    appendSystem(c.name + ' 피클이 나갔습니다');
-  }
-
-  function onNetMessage(msg) {
-    if (msg.kind === 'hello') {
-      ensureChar(msg);
-      sendState(true);
-      return;
-    }
-    if (msg.kind === 'state') {
-      var c = ensureChar(msg);
-      c.name = cleanText(msg.name, 14) || c.name;
-      c.owner = cleanText(msg.owner, 14) || c.owner;
-      c.body = validColor(msg.body, c.body);
-      c.accent = validColor(msg.accent, c.accent);
-      c.glow = validColor(msg.glow, c.glow);
-      if (STATUSES.some(function (s) { return s.id === msg.status; })) c.status = msg.status;
-      var nx = Number(msg.x);
-      var ny = Number(msg.y);
-      if (isFinite(nx) && isFinite(ny)) {
-        c.x = clamp(nx, 40, WORLD.w - 40);
-        c.y = clamp(ny, 96, WORLD.h - 30);
-        if (c.dx === undefined || Math.abs(c.dx - c.x) > 260) { c.dx = c.x; c.dy = c.y; }
-      }
-      c.moving = !!msg.moving;
-      if (Number(msg.facing) < 0 || Number(msg.facing) > 0) c.facing = Number(msg.facing) < 0 ? -1 : 1;
-      c.lastSeen = nowMs();
-      renderRoster();
-      return;
-    }
-    if (msg.kind === 'chat') {
-      var text = cleanText(msg.text, 140);
-      if (!text) return;
-      var ch = chars.get(msg.from) || ensureChar(msg);
-      addMessage({
-        id: msg.id,
-        from: msg.from,
-        name: ch.name,
-        body: ch.body,
-        text: text,
-        at: Number(msg.at) || nowMs()
-      });
-      ch.lastSeen = nowMs();
-      return;
-    }
-    if (msg.kind === 'tasks') {
-      if (!Array.isArray(msg.items)) return;
-      if (Number(msg.rev) <= taskRev) return;
-      taskRev = Number(msg.rev) || nowMs();
-      tasks = msg.items.slice(0, 40).map(function (t) {
-        return {
-          id: String(t.id || nowMs() + Math.random()),
-          text: cleanText(t.text, 80),
-          done: !!t.done,
-          by: cleanText(t.by, 14)
-        };
-      }).filter(function (t) { return t.text; });
-      renderTasks();
-      Store.set('pickleoffice.tasks.' + room, JSON.stringify(tasks));
-      return;
-    }
-    if (msg.kind === 'bye') {
-      removeChar(msg.from);
-      return;
-    }
-  }
-
-  function setNetUI(state, detail) {
-    netPill.classList.remove('is-live', 'is-local', 'is-connecting');
-    if (state === 'live') {
-      netPill.classList.add('is-live');
-      netText.textContent = '연결됨';
-      netPill.title = '실시간 연결됨 (' + (detail || '브로커') + ')';
-    } else if (state === 'connecting') {
-      netPill.classList.add('is-connecting');
-      netText.textContent = '연결 중';
-      netPill.title = '실시간 연결을 준비하고 있어요' + (detail ? ' · ' + detail : '');
-    } else {
-      netPill.classList.add('is-local');
-      netText.textContent = '로컬';
-      netPill.title = '이 브라우저 안에서만 움직여요. 네트워크가 열리면 자동으로 연결돼요.';
-    }
-    var sync = $('#syncStatus');
-    if (sync) {
-      sync.textContent = state === 'live'
-        ? '공개 브로커(' + (detail || 'EMQX') + ')로 실시간 연결됐어요. 같은 방 링크를 연 피클과 바로 만나요.'
-        : (state === 'connecting'
-          ? '브로커에 연결하는 중이에요…'
-          : '지금은 로컬 모드예요. 같은 브라우저의 다른 탭끼리만 보여요.');
-    }
-  }
-
+  function activeParts() { return S.parts.filter(function (p) { return p.on; }); }
+  function partById(id) { return S.parts.filter(function (p) { return p.id === id; })[0] || null; }
+  function initial(name) { return (name || '?').trim().slice(0, 1); }
+
+  var remotes = {};
+  var repliedTo = {};
+  var net = null;
+  var netState = 'connecting';
+  var wasLive = false;
+
+  /* ── net ───────────────────────────────── */
   function bootNet() {
-    net = new window.OfficeNet({
-      room: room,
-      clientId: clientId,
+    if (typeof OfficeNet !== 'function') { setNet('local'); return; }
+    net = new OfficeNet({
+      room: S.room,
       onMessage: onNetMessage,
-      onStatus: function (state, detail) {
-        setNetUI(state, detail);
-        if (state === 'live') {
-          net.send({ kind: 'hello', name: me.name, owner: me.owner, body: me.body, accent: me.accent, glow: me.glow, status: me.status, x: Math.round(me.x), y: Math.round(me.y) });
-          sendState(true);
-        }
+      onStatus: function (status, info) {
+        netState = (status === 'live') ? 'live' : (status === 'connecting' ? 'connecting' : 'local');
+        setNet(netState, info);
       }
     });
     net.start();
-    sendState(true);
-    setTimeout(function () { if (net && !net.live) setNetUI('local'); }, 9000);
-  }
+    setTimeout(function () {
+      if (net) net.send({ kind: 'hello', name: S.name, owner: S.owner, level: level(), accent: S.accent });
+    }, 400);
+    setTimeout(function () { if (net && !net.live) setNet('local'); }, 9000);
 
-  function bootCloud(url) {
-    if (!cloud) {
-      cloud = new window.CloudStore({
-        room: room,
-        clientId: clientId,
-        onStatus: function (state, detail) {
-          var el = $('#fbStatus');
-          if (!el) return;
-          if (state === 'ready') el.textContent = 'Firebase에 연결됐어요. 업무 메모와 대화가 저장돼요.';
-          else if (state === 'connecting') el.textContent = 'Firebase에 연결하는 중…';
-          else if (state === 'error') el.textContent = 'Firebase 오류: ' + detail + ' (DB 규칙에서 읽기/쓰기를 허용해야 해요)';
-          else el.textContent = '';
-        },
-        onTasks: function (data) {
-          if (!data || !Array.isArray(data.items)) return;
-          if (Number(data.rev) <= taskRev) return;
-          taskRev = Number(data.rev) || nowMs();
-          tasks = data.items.slice(0, 40).map(function (t) {
-            return { id: String(t.id || nowMs()), text: cleanText(t.text, 80), done: !!t.done, by: cleanText(t.by, 14) };
-          }).filter(function (t) { return t.text; });
-          renderTasks();
-        },
-        onMessages: function (list) {
-          list.forEach(function (m) {
-            if (!m || !m.id || !m.text) return;
-            addMessage({
-              id: m.id,
-              from: String(m.from || 'cloud'),
-              name: cleanText(m.name, 14) || '피클',
-              body: validColor(m.body, '#B9AEC8'),
-              text: cleanText(m.text, 140),
-              at: Number(m.at) || nowMs()
-            });
-          });
-        }
+    setInterval(function () {
+      if (!net) return;
+      net.send({ kind: 'state', name: S.name, owner: S.owner, level: level(), accent: S.accent });
+    }, 20000);
+    setInterval(function () {
+      var now = Date.now();
+      var changed = false;
+      Object.keys(remotes).forEach(function (id) {
+        if (now - remotes[id].at > 55000) { delete remotes[id]; changed = true; }
       });
-    }
-    cloud.start(url);
+      if (changed) renderCurrent();
+    }, 15000);
   }
 
-  /* ── 이동 ───────────────────────────────── */
-
-  function blocked(x, y) {
-    var r = 18;
-    if (x < 40 || x > WORLD.w - 40 || y < 96 || y > WORLD.h - 30) return true;
-    var obs = A.OBSTACLES;
-    for (var i = 0; i < obs.length; i++) {
-      var o = obs[i];
-      if (o.type === 'rect') {
-        var cx = clamp(x, o.x, o.x + o.w);
-        var cy = clamp(y, o.y, o.y + o.h);
-        var dx = x - cx, dy = y - cy;
-        if (dx * dx + dy * dy < r * r) return true;
-      } else {
-        var ddx = x - o.x, ddy = y - o.y;
-        var rr2 = (r + o.r);
-        if (ddx * ddx + ddy * ddy < rr2 * rr2) return true;
+  function setNet(state, info) {
+    var changed = netState !== state;
+    netState = state;
+    var pill = $('#livePill'), text = $('#liveText');
+    if (!pill) return;
+    pill.classList.remove('is-local', 'is-connecting');
+    if (state === 'live') {
+      text.textContent = 'LIVE';
+      pill.title = '실시간 연결됨' + (info ? ' · ' + info : '');
+      if (!wasLive && net) {
+        net.send({ kind: 'hello', name: S.name, owner: S.owner, level: level(), accent: S.accent });
       }
+      wasLive = true;
     }
-    return false;
+    else if (state === 'connecting') { pill.classList.add('is-connecting'); text.textContent = '연결 중'; }
+    else { pill.classList.add('is-local'); text.textContent = '로컬'; pill.title = '이 브라우저 안에서만 동기화'; }
+    if (changed) renderCurrent();
   }
 
-  /* ── 길찾기 (유리 파티션을 돌아서 이동) ── */
-
-  var nav = null;
-  var NAV_STEP = 14;
-
-  function buildNav() {
-    if (nav) return;
-    // 씬을 먼저 만들어 파티션 장애물을 등록시킨다.
-    if (A.scene) A.scene();
-    var cols = Math.ceil(WORLD.w / NAV_STEP);
-    var rows = Math.ceil(WORLD.h / NAV_STEP);
-    var cells = new Uint8Array(cols * rows);
-    for (var r = 0; r < rows; r++) {
-      for (var c = 0; c < cols; c++) {
-        var x = c * NAV_STEP + NAV_STEP / 2;
-        var y = r * NAV_STEP + NAV_STEP / 2;
-        cells[r * cols + c] = blocked(x, y) ? 1 : 0;
-      }
-    }
-    nav = { cols: cols, rows: rows, cells: cells };
-  }
-
-  function navFree(c, r) {
-    return c >= 0 && r >= 0 && c < nav.cols && r < nav.rows && !nav.cells[r * nav.cols + c];
-  }
-
-  function navNearestFree(c, r) {
-    if (navFree(c, r)) return { c: c, r: r };
-    for (var d = 1; d < 10; d++) {
-      for (var dr = -d; dr <= d; dr++) {
-        for (var dc = -d; dc <= d; dc++) {
-          if (Math.abs(dr) !== d && Math.abs(dc) !== d) continue;
-          if (navFree(c + dc, r + dr)) return { c: c + dc, r: r + dr };
-        }
-      }
-    }
-    return null;
-  }
-
-  function heapPush(h, node) {
-    h.push(node);
-    var i = h.length - 1;
-    while (i > 0) {
-      var p = (i - 1) >> 1;
-      if (h[p].f <= h[i].f) break;
-      var t = h[p]; h[p] = h[i]; h[i] = t;
-      i = p;
-    }
-  }
-
-  function heapPop(h) {
-    var top = h[0];
-    var last = h.pop();
-    if (h.length) {
-      h[0] = last;
-      var i = 0;
-      for (;;) {
-        var l = i * 2 + 1, r = l + 1, m = i;
-        if (l < h.length && h[l].f < h[m].f) m = l;
-        if (r < h.length && h[r].f < h[m].f) m = r;
-        if (m === i) break;
-        var t = h[m]; h[m] = h[i]; h[i] = t;
-        i = m;
-      }
-    }
-    return top;
-  }
-
-  function clearLine(x1, y1, x2, y2) {
-    var d = Math.hypot(x2 - x1, y2 - y1);
-    var steps = Math.max(1, Math.ceil(d / 8));
-    for (var i = 1; i <= steps; i++) {
-      var x = x1 + (x2 - x1) * (i / steps);
-      var y = y1 + (y2 - y1) * (i / steps);
-      if (blocked(x, y)) return false;
-    }
-    return true;
-  }
-
-  function smoothPath(pts) {
-    if (pts.length <= 2) return pts;
-    var out = [pts[0]];
-    var i = 0;
-    while (i < pts.length - 1) {
-      var j = pts.length - 1;
-      while (j > i + 1 && !clearLine(pts[i].x, pts[i].y, pts[j].x, pts[j].y)) j--;
-      out.push(pts[j]);
-      i = j;
-    }
-    return out.slice(1);
-  }
-
-  function findPath(sx, sy, tx, ty) {
-    buildNav();
-    var sc = clamp(Math.floor(sx / NAV_STEP), 0, nav.cols - 1);
-    var sr = clamp(Math.floor(sy / NAV_STEP), 0, nav.rows - 1);
-    var tc = clamp(Math.floor(tx / NAV_STEP), 0, nav.cols - 1);
-    var tr = clamp(Math.floor(ty / NAV_STEP), 0, nav.rows - 1);
-
-    var s = navNearestFree(sc, sr);
-    var t = navNearestFree(tc, tr);
-    if (!s || !t) return null;
-
-    var cols = nav.cols;
-    var N = cols * nav.rows;
-    var start = s.r * cols + s.c;
-    var goal = t.r * cols + t.c;
-
-    if (start === goal) return [{ x: tx, y: ty }];
-
-    var gScore = new Float32Array(N);
-    gScore.fill(Infinity);
-    var came = new Int32Array(N);
-    came.fill(-1);
-    var closed = new Uint8Array(N);
-
-    function h(c, r) {
-      var dx = Math.abs(c - t.c), dy = Math.abs(r - t.r);
-      return (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy);
-    }
-
-    var open = [];
-    gScore[start] = 0;
-    heapPush(open, { i: start, f: h(s.c, s.r) });
-
-    var dirs = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
-                [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]];
-
-    var found = false;
-    var guard = 0;
-    while (open.length && guard++ < 20000) {
-      var cur = heapPop(open).i;
-      if (closed[cur]) continue;
-      closed[cur] = 1;
-      if (cur === goal) { found = true; break; }
-      var cc = cur % cols, cr = (cur / cols) | 0;
-      for (var k = 0; k < dirs.length; k++) {
-        var nc = cc + dirs[k][0], nr = cr + dirs[k][1];
-        if (!navFree(nc, nr)) continue;
-        if (dirs[k][0] && dirs[k][1]) {
-          if (!navFree(cc + dirs[k][0], cr) || !navFree(cc, cr + dirs[k][1])) continue;
-        }
-        var ni = nr * cols + nc;
-        if (closed[ni]) continue;
-        var ng = gScore[cur] + dirs[k][2];
-        if (ng < gScore[ni]) {
-          gScore[ni] = ng;
-          came[ni] = cur;
-          heapPush(open, { i: ni, f: ng + h(nc, nr) });
-        }
-      }
-    }
-    if (!found) return null;
-
-    var pts = [];
-    var node = goal;
-    while (node !== -1) {
-      pts.push({ x: (node % cols) * NAV_STEP + NAV_STEP / 2, y: ((node / cols) | 0) * NAV_STEP + NAV_STEP / 2 });
-      node = came[node];
-    }
-    pts.reverse();
-    pts[0] = { x: sx, y: sy };
-    pts.push({ x: tx, y: ty });
-    return smoothPath(pts);
-  }
-
-  function setDestination(p) {
-    var path = null;
-    try { path = findPath(me.x, me.y, p.x, p.y); } catch (e) { path = null; }
-    me.path = path && path.length ? path : [p];
-    me.target = me.path[0];
-    me.stuck = 0;
-  }
-
-  function tryStep(ch, dx, dy) {
-    var moved = false;
-    if (!blocked(ch.x + dx, ch.y + dy)) {
-      ch.x += dx; ch.y += dy;
-      return true;
-    }
-    if (Math.abs(dx) > 0.01 && !blocked(ch.x + dx, ch.y)) { ch.x += dx; moved = true; }
-    if (Math.abs(dy) > 0.01 && !blocked(ch.x, ch.y + dy)) { ch.y += dy; moved = true; }
-    return moved;
-  }
-
-  function nudgeChar(c, dx, dy) {
-    if (c.isAI) {
-      var nx = clamp(c.x + dx, 44, WORLD.w - 44);
-      var ny = clamp(c.y + dy, 100, WORLD.h - 34);
-      if (!blocked(nx, ny)) {
-        c.x = nx;
-        c.y = ny;
-        c.dx = nx;
-        c.dy = ny;
-      }
+  function onNetMessage(msg) {
+    if (!msg || !msg.kind) return;
+    if (msg.kind === 'chat') {
+      S.chat.push({
+        id: msg.id || uid(), mine: false,
+        name: msg.name || '피클', role: msg.role || '게스트',
+        accent: msg.accent || '#8b95a3',
+        text: String(msg.text || '').slice(0, 800),
+        at: msg.at || Date.now()
+      });
+      S.chat = S.chat.slice(-60);
+      saveSoon();
+      if (S.tab === 'meeting') { renderMessages(); scrollMessages(); }
+      else { markTabDot('meeting'); }
+      if (S.tab === 'status') renderCurrent();
       return;
     }
-    c.dx += dx;
-    c.dy += dy;
-  }
-
-  function freePoint(tx, ty) {
-    tx = clamp(tx, 44, WORLD.w - 44);
-    ty = clamp(ty, 100, WORLD.h - 34);
-    if (!blocked(tx, ty)) return { x: tx, y: ty };
-    for (var r = 12; r <= 120; r += 12) {
-      for (var a = 0; a < 12; a++) {
-        var ang = (Math.PI * 2 / 12) * a;
-        var x = clamp(tx + Math.cos(ang) * r, 44, WORLD.w - 44);
-        var y = clamp(ty + Math.sin(ang) * r, 100, WORLD.h - 34);
-        if (!blocked(x, y)) return { x: x, y: y };
+    if (msg.kind === 'hello' || msg.kind === 'state') {
+      remotes[msg.from] = {
+        id: msg.from, name: msg.name || '피클', owner: msg.owner || '',
+        level: msg.level || 2, accent: msg.accent || '#8b95a3', at: Date.now()
+      };
+      if (msg.kind === 'hello' && !repliedTo[msg.from] && net) {
+        repliedTo[msg.from] = true;
+        net.send({ kind: 'hello', name: S.name, owner: S.owner, level: level(), accent: S.accent });
+      }
+      if (S.tab === 'status') renderCurrent();
+      if (S.tab === 'meeting') renderChatHead();
+      return;
+    }
+    if (msg.kind === 'bye') {
+      delete remotes[msg.from];
+      if (S.tab === 'status') renderCurrent();
+      if (S.tab === 'meeting') renderChatHead();
+      return;
+    }
+    if (msg.kind === 'tasks' && Array.isArray(msg.items)) {
+      if ((msg.rev || 0) > (S.memoRev || 0)) {
+        S.memos = msg.items.slice(0, 80);
+        S.memoRev = msg.rev;
+        saveSoon();
+        if (S.tab === 'memo' || S.tab === 'status') renderCurrent();
       }
     }
-    return null;
   }
 
-  function onPointer(e) {
-    var rect = canvas.getBoundingClientRect();
-    var px = e.clientX - rect.left;
-    var py = e.clientY - rect.top;
-    var wx = (px - view.cw / 2) / view.scale + cam.x;
-    var wy = (py - view.ch / 2) / view.scale + cam.y;
-    var p = freePoint(wx, wy);
-    if (p) setDestination(p);
-    hideHint();
+  /* ── render: shell ─────────────────────── */
+  function renderChrome() {
+    var n = activeParts().length;
+    var sub = $('#brandSub');
+    if (sub) sub.textContent = '크림 본부 · ' + (n ? n + '개 파트 가동 중' : '잠시 쉬는 중');
+    var mark = $('#brandMark');
+    if (mark) mark.textContent = 'K.';
+    document.title = 'Cream Office · 크림 본부';
   }
 
-  function hideHint() {
-    if (!hintEl.classList.contains('is-hidden')) {
-      hintEl.classList.add('is-hidden');
-      Store.set('pickleoffice.hinted', '1');
-    }
-    if (hintTimer) { clearTimeout(hintTimer); hintTimer = null; }
+  function renderCurrent() {
+    renderChrome();
+    if (S.tab === 'office') renderOffice();
+    else if (S.tab === 'meeting') renderMeeting();
+    else if (S.tab === 'workshop') renderWorkshop();
+    else if (S.tab === 'status') renderStatus();
+    else if (S.tab === 'memo') renderMemo();
   }
 
-  /* ── 루프 ───────────────────────────────── */
-
-  function resize() {
-    var rect = stage.getBoundingClientRect();
-    view.cw = Math.max(120, rect.width);
-    view.ch = Math.max(120, rect.height);
-    view.dpr = Math.min(2.5, window.devicePixelRatio || 1);
-    var w = Math.round(view.cw * view.dpr);
-    var h = Math.round(view.ch * view.dpr);
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w;
-      canvas.height = h;
-    }
-  }
-
-  function computeView(dt) {
-    var fitW = view.cw / WORLD.w;
-    var fitH = view.ch / WORLD.h;
-    var scale = Math.min(fitW, fitH);
-    if (view.cw < 700) {
-      var zoomed = Math.min(view.cw / (WORLD.w * 0.62), view.ch / (WORLD.h * 0.80));
-      scale = Math.max(scale, zoomed);
-    }
-    var viewW = view.cw / scale;
-    var viewH = view.ch / scale;
-    var tx = WORLD.w / 2;
-    var ty = WORLD.h / 2;
-    if (viewW < WORLD.w - 6) tx = clamp(me.dx, viewW / 2, WORLD.w - viewW / 2);
-    if (viewH < WORLD.h - 6) ty = clamp(me.dy, viewH / 2, WORLD.h - viewH / 2);
-    var k = 1 - Math.pow(0.0015, Math.max(0.001, dt));
-    cam.x += (tx - cam.x) * k;
-    cam.y += (ty - cam.y) * k;
-    view.scale = scale;
-    view.camX = cam.x;
-    view.camY = cam.y;
-    return view;
-  }
-
-  function update(now, dt) {
-    // 내 캐릭터
-    var kx = 0, ky = 0;
-    if (keys['ArrowLeft'] || keys['a'] || keys['A']) kx -= 1;
-    if (keys['ArrowRight'] || keys['d'] || keys['D']) kx += 1;
-    if (keys['ArrowUp'] || keys['w'] || keys['W']) ky -= 1;
-    if (keys['ArrowDown'] || keys['s'] || keys['S']) ky += 1;
-
-    var speed = 168;
-    var moving = false;
-
-    if (kx || ky) {
-      me.target = null;
-      me.path = [];
-      var len = Math.hypot(kx, ky) || 1;
-      var stepLen = speed * dt;
-      tryStep(me, (kx / len) * stepLen, (ky / len) * stepLen);
-      if (kx) me.facing = kx < 0 ? -1 : 1;
-      moving = true;
-      hideHint();
-    } else if (me.target) {
-      var ddx = me.target.x - me.x;
-      var ddy = me.target.y - me.y;
-      var dist = Math.hypot(ddx, ddy);
-      if (dist < 3) {
-        me.path = me.path || [];
-        me.path.shift();
-        me.target = me.path.length ? me.path[0] : null;
-      } else {
-        var step = Math.min(dist, speed * dt);
-        var bx = me.x, by = me.y;
-        tryStep(me, (ddx / dist) * step, (ddy / dist) * step);
-        var moved = Math.hypot(me.x - bx, me.y - by);
-        if (moved < step * 0.2) {
-          me.stuck += dt;
-          if (me.stuck > 0.3) { me.target = null; me.path = []; me.stuck = 0; }
-        } else {
-          me.stuck = 0;
-        }
-        if (Math.abs(ddx) > 2) me.facing = ddx < 0 ? -1 : 1;
-        moving = true;
-      }
-    }
-
-    me.moving = moving;
-    me.dx = me.x;
-    me.dy = me.y;
-
-    // 다른 피클 보간 + 깜빡임
-    chars.forEach(function (c) {
-      if (c.id === myId) {
-        c.blink = Math.max(0, c.blink - dt);
-        if (c.blink === 0) {
-          c.nextBlink -= dt;
-          if (c.nextBlink <= 0) {
-            c.blink = 0.13;
-            c.nextBlink = 2 + Math.random() * 4;
-          }
-        }
-        return;
-      }
-      var lerp = 1 - Math.pow(0.0005, dt);
-      c.dx += (c.x - c.dx) * lerp;
-      c.dy += (c.y - c.dy) * lerp;
-      c.blink = Math.max(0, c.blink - dt);
-      c.nextBlink -= dt;
-      if (c.nextBlink <= 0) {
-        c.blink = 0.13;
-        c.nextBlink = 2 + Math.random() * 4;
-      }
+  function setTab(tab, opts) {
+    opts = opts || {};
+    S.tab = tab;
+    $$('.tab').forEach(function (b) {
+      var on = b.getAttribute('data-tab') === tab;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      if (on) b.classList.remove('has-dot');
     });
+    $$('.view').forEach(function (v) {
+      var on = v.id === 'view-' + tab;
+      v.classList.toggle('is-active', on);
+      v.hidden = !on;
+    });
+    renderCurrent();
+    if (tab === 'meeting') {
+      renderMessages(); scrollMessages();
+      if (opts.prefill) setComposer(opts.prefill);
+      var input = $('#chatInput');
+      if (input && opts.focus && window.innerWidth >= 900) input.focus();
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 
-    // 캐릭터끼리 겹치지 않게 부드럽게 밀어내기
-    var arr = Array.from(chars.values());
-    for (var i = 0; i < arr.length; i++) {
-      for (var j = i + 1; j < arr.length; j++) {
-        var a = arr[i], b = arr[j];
-        var sdx = b.dx - a.dx, sdy = b.dy - a.dy;
-        var dist = Math.hypot(sdx, sdy);
-        var minD = 46;
-        if (dist < 0.01) { sdx = 1; sdy = 0; dist = 1; }
-        if (dist < minD) {
-          var push = (minD - dist) / 2;
-          var ux = sdx / dist, uy = sdy / dist;
-          if (a.id === myId) {
-            nudgeChar(b, ux * push * 2, uy * push * 2);
-          } else if (b.id === myId) {
-            nudgeChar(a, -ux * push * 2, -uy * push * 2);
-          } else {
-            nudgeChar(a, -ux * push, -uy * push);
-            nudgeChar(b, ux * push, uy * push);
-          }
-        }
-      }
+  function markTabDot(tab) {
+    var b = $('.tab[data-tab="' + tab + '"]');
+    if (b && !b.classList.contains('is-active')) b.classList.add('has-dot');
+  }
+
+  /* ── render: office ────────────────────── */
+  function renderOffice() {
+    var host = $('#view-office');
+    if (!host) return;
+    var act = activeParts();
+    var n = act.length;
+    var headline = n === 0
+      ? '대표님, 지금은 모든 파트가 쉬고 있어요'
+      : '대표님, ' + n + '개 파트가 대기 중이에요';
+
+    host.innerHTML =
+      '<div class="office-main">' +
+        '<section class="card hero">' +
+          '<span class="tag">Workspace</span>' +
+          '<h2>' + esc(headline) + '</h2>' +
+          '<p>공간이나 담당자를 탭하면 최근 진행 현황을 바로 볼 수 있어요.</p>' +
+        '</section>' +
+        '<div class="chips">' +
+          '<button type="button" class="chip dark' + (S.motion ? '' : ' is-off') + '" data-act="motion" aria-pressed="' + (S.motion ? 'true' : 'false') + '">' +
+            '<span class="chip-dot" aria-hidden="true"></span>모션 ' + (S.motion ? 'ON' : 'OFF') +
+          '</button>' +
+          '<span class="chip">가동 ' + n + '파트</span>' +
+          '<span class="chip">Lv.' + level() + ' ' + esc(S.name) + '</span>' +
+        '</div>' +
+        '<section class="card map-card">' +
+          '<div class="map" id="map">' +
+            '<img src="assets/office-diorama.png" alt="크림 본부 3D 아이소메트릭 오피스" decoding="async" />' +
+            pinsHTML() +
+            '<div class="bubble" id="mapBubble"></div>' +
+          '</div>' +
+          '<div class="map-foot">' +
+            '<span><strong>' + n + '개 파트</strong>가 일하고 있어요</span>' +
+            '<span>' + (netState === 'live' ? '실시간 동기화' : '이 브라우저에서') + '</span>' +
+          '</div>' +
+        '</section>' +
+      '</div>' +
+      '<aside class="office-side">' +
+        '<section class="card side-card">' +
+          '<div class="side-head"><h3>지금 이 순간</h3><span>' + timeLabel(Date.now()) + '</span></div>' +
+          '<div class="rows">' + partRowsHTML() + '</div>' +
+        '</section>' +
+        recentChatCardHTML() +
+      '</aside>';
+
+    document.body.classList.toggle('motion-on', !!S.motion);
+    scheduleBubble();
+  }
+
+  function recentChatCardHTML() {
+    var last = S.chat.slice(-2);
+    if (!last.length) return '';
+    var rows = last.map(function (m) {
+      return '<div class="row" style="cursor:default">' +
+        '<span class="row-avatar" style="background:' + (m.accent || '#8b95a3') + '">' + esc(initial(m.name)) + '</span>' +
+        '<span class="row-body">' +
+          '<span class="row-title">' + esc(m.mine ? S.name : m.name) +
+            '<span class="muted small" style="font-weight:600">· ' + timeLabel(m.at) + '</span></span>' +
+          '<span class="row-sub">' + esc(m.text) + '</span>' +
+        '</span></div>';
+    }).join('');
+    return '<section class="card side-card only-desktop">' +
+      '<div class="side-head"><h3>회의실 최근 대화</h3><span>' + S.chat.length + '개</span></div>' +
+      '<div class="rows">' + rows + '</div>' +
+      '<div style="padding:2px 0 12px"><button type="button" class="btn wide" data-act="go-meeting">회의실 열기</button></div>' +
+      '</section>';
+  }
+
+  function pinsHTML() {
+    return SPACES.map(function (sp) {
+      var p = sp.kind === 'part' ? partById(sp.id) : null;
+      var on = sp.kind === 'part' ? !!(p && p.on) : true;
+      return '<button type="button" class="pin' + (on ? '' : ' is-idle') + '" data-act="pin" data-space="' + sp.id + '"' +
+        ' style="left:' + sp.x + '%;top:' + sp.y + '%" aria-label="' + esc(sp.label) + ' 현황 보기">' +
+        '<span class="dot" aria-hidden="true"></span>' + esc(sp.label) + '</button>';
+    }).join('');
+  }
+
+  function partRowsHTML() {
+    var act = activeParts();
+    if (!act.length) {
+      return '<div class="empty">모든 파트가 쉬고 있어요.<br>작업실에서 AI 동료를 다시 켤 수 있어요.</div>';
+    }
+    return act.map(function (p) {
+      return '<button type="button" class="row" data-act="pin" data-space="' + p.id + '">' +
+        '<span class="row-avatar" style="background:' + p.accent + '">' + esc(initial(p.name)) + '</span>' +
+        '<span class="row-body">' +
+          '<span class="row-title"><span class="state-dot"></span>' + esc(p.name) +
+            '<span class="muted small" style="font-weight:600">· ' + esc(p.role) + '</span></span>' +
+          '<span class="row-sub">' + esc(p.status) + '</span>' +
+        '</span>' +
+        '<svg class="row-chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>' +
+      '</button>';
+    }).join('');
+  }
+
+  /* ── speech bubbles ───────────────────── */
+  var bubbleTimer = null, bubbleHide = null;
+  function scheduleBubble() {
+    clearTimeout(bubbleTimer);
+    if (!S.motion) return;
+    bubbleTimer = setTimeout(function () {
+      if (S.tab !== 'office' || !S.motion) { scheduleBubble(); return; }
+      var act = activeParts();
+      if (!act.length) { scheduleBubble(); return; }
+      var p = act[Math.floor(Math.random() * act.length)];
+      showBubble(p);
+      scheduleBubble();
+    }, 6500 + Math.random() * 2500);
+  }
+  function showBubble(p) {
+    var el = $('#mapBubble');
+    if (!el) return;
+    var a = p.anchor || [50, 40];
+    el.style.left = a[0] + '%';
+    el.style.top = a[1] + '%';
+    el.textContent = p.line;
+    el.classList.add('is-show');
+    clearTimeout(bubbleHide);
+    bubbleHide = setTimeout(function () { el.classList.remove('is-show'); }, 4200);
+  }
+
+  /* ── sheet ─────────────────────────────── */
+  var sheetOpen = false;
+  function openSheet(title, html, onMount) {
+    var sheet = $('#sheet'), scrim = $('#scrim');
+    $('#sheetTitle').textContent = title;
+    $('#sheetBody').innerHTML = html;
+    sheet.hidden = false;
+    scrim.hidden = false;
+    sheetOpen = true;
+    document.body.style.overflow = 'hidden';
+    if (onMount) onMount($('#sheetBody'));
+    var close = $('#sheetClose');
+    if (close) close.focus({ preventScroll: true });
+  }
+  function closeSheet() {
+    $('#sheet').hidden = true;
+    $('#scrim').hidden = true;
+    sheetOpen = false;
+    document.body.style.overflow = '';
+  }
+
+  function openSpaceSheet(spaceId) {
+    var sp = SPACES.filter(function (s) { return s.id === spaceId; })[0];
+    if (!sp) return;
+
+    if (sp.kind === 'room') {
+      var r = ROOMS[sp.id] || ROOMS.meeting;
+      openSheet(r.title,
+        '<p class="sheet-note">' + esc(r.desc) + '</p>' +
+        '<div class="sheet-line"><span class="state-dot" style="display:inline-block;margin-right:7px"></span>' + esc(r.status) + '</div>' +
+        '<div class="sheet-actions">' +
+          '<button type="button" class="btn primary" data-act="go-meeting" data-prefill="' + esc(r.prefill) + '">' + esc(r.action) + '</button>' +
+          '<button type="button" class="btn" data-act="close-sheet">닫기</button>' +
+        '</div>');
+      return;
     }
 
-    sendState(false);
-
-    updateAI(now, dt);
-
-    var t = nowMs();
-    if (t - lastPrune > 1000) {
-      lastPrune = t;
-      chars.forEach(function (c) {
-        if (c.id !== myId && !c.isAI && t - c.lastSeen > 16000) {
-          // 16초 동안 소식이 없으면 자리 비움으로 정리
-          removeChar(c.id);
-        }
-      });
+    var p = partById(sp.id);
+    if (!p) {
+      openSheet(sp.label,
+        '<p class="sheet-note">아직 이 자리에 담당 파트가 없어요. 작업실에서 AI 동료를 추가해 보세요.</p>' +
+        '<div class="sheet-actions">' +
+          '<button type="button" class="btn primary" data-act="go-workshop">작업실로 가기</button>' +
+          '<button type="button" class="btn" data-act="close-sheet">닫기</button>' +
+        '</div>');
+      return;
     }
-  }
 
-  var lastFrame = 0;
-  function frame(ts) {
-    requestAnimationFrame(frame);
-    var now = ts / 1000;
-    var dt = lastFrame ? Math.min(0.05, now - lastFrame) : 0.016;
-    lastFrame = now;
-    update(now, dt);
-    var v = computeView(dt);
-    A.drawScene(ctx, v, Array.from(chars.values()), myId, now);
-    flushChatScroll();
-  }
-
-  /* ── 설정 모달 ──────────────────────────── */
-
-  var settingsDlg = $('#settingsDlg');
-  var welcomeDlg = $('#welcomeDlg');
-  var previewCanvas = $('#previewCanvas');
-  var draft = null;
-
-  function draftProfile() {
-    return {
-      name: cleanText($('#setName').value, 14) || '피클',
-      owner: cleanText($('#setOwner').value, 14),
-      body: validColor($('#setBody').value, me.body),
-      accent: validColor($('#setAccent').value, me.accent),
-      glow: validColor($('#setGlow').value, me.glow),
-      status: $('#setStatus').value
-    };
-  }
-
-  function paintPreview() {
-    if (!draft) return;
-    A.drawPreview(previewCanvas, draft);
-  }
-
-  function buildPresets(container, onPick) {
-    container.innerHTML = '';
-    PRESETS.forEach(function (p) {
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'preset';
-      b.dataset.preset = p.id;
-      var sw = document.createElement('span');
-      sw.className = 'swatch';
-      sw.style.background = p.body;
-      sw.style.setProperty('--acc', p.accent);
-      b.appendChild(sw);
-      b.appendChild(document.createTextNode(p.name));
-      b.addEventListener('click', function () {
-        onPick(p);
-        Array.prototype.forEach.call(container.children, function (el) {
-          el.classList.toggle('is-active', el.dataset.preset === p.id);
-        });
-      });
-      container.appendChild(b);
-    });
-  }
-
-  function syncPresetState() {
-    var row = $('#presetRow');
-    Array.prototype.forEach.call(row.children, function (el) {
-      var p = PRESETS.filter(function (x) { return x.id === el.dataset.preset; })[0];
-      el.classList.toggle('is-active', !!p && p.body.toLowerCase() === draft.body.toLowerCase() && p.accent.toLowerCase() === draft.accent.toLowerCase());
-    });
+    var on = p.on;
+    openSheet(sp.label,
+      '<div class="row" style="padding:0;border:0">' +
+        '<span class="row-avatar" style="background:' + p.accent + '">' + esc(initial(p.name)) + '</span>' +
+        '<span class="row-body">' +
+          '<span class="row-title"><span class="state-dot' + (on ? '' : ' is-off') + '"></span>' + esc(p.name) + '</span>' +
+          '<span class="row-sub">' + esc(p.role) + ' · ' + (on ? '가동 중' : '쉬는 중') + '</span>' +
+        '</span>' +
+      '</div>' +
+      '<div class="sheet-line"><b>지금</b> · ' + esc(on ? p.status : '잠시 대기 중이에요') + '</div>' +
+      '<div class="sheet-line"><b>최근 한마디</b> · "' + esc(p.line) + '"</div>' +
+      '<div class="sheet-actions">' +
+        '<button type="button" class="btn primary" data-act="talk-part" data-part="' + p.id + '">' + esc(p.name) + '와 대화</button>' +
+        '<button type="button" class="btn" data-act="go-workshop">작업실에서 관리</button>' +
+      '</div>');
   }
 
   function openSettings() {
-    draft = {
-      name: me.name,
-      owner: me.owner,
-      body: me.body,
-      accent: me.accent,
-      glow: me.glow,
-      status: me.status
-    };
-    $('#setName').value = me.name;
-    $('#setOwner').value = me.owner;
-    $('#setStatus').value = me.status;
-    $('#setBody').value = me.body;
-    $('#setAccent').value = me.accent;
-    $('#setGlow').value = me.glow;
-    $('#setRoom').value = room;
-    $('#setFirebase').value = Store.get('pickleoffice.firebase', '');
-    $('#fbStatus').textContent = '';
-    setNetUI(net && net.live ? 'live' : 'local', net && net.brokerName);
-
-    buildPresets($('#presetRow'), function (p) {
-      draft.body = p.body;
-      draft.accent = p.accent;
-      draft.glow = p.glow;
-      $('#setBody').value = p.body;
-      $('#setAccent').value = p.accent;
-      $('#setGlow').value = p.glow;
-      paintPreview();
-    });
-
-    settingsDlg.showModal();
-    requestAnimationFrame(function () {
-      paintPreview();
-      syncPresetState();
-    });
+    openSheet('설정',
+      '<div class="field"><label for="setName">내 피클 이름</label>' +
+        '<input id="setName" maxlength="12" value="' + esc(S.name) + '" /></div>' +
+      '<div class="field"><label for="setOwner">소개</label>' +
+        '<input id="setOwner" maxlength="30" value="' + esc(S.owner) + '" /></div>' +
+      '<div class="field"><label for="setRoom">방 이름 (같은 이름이면 실시간으로 이어져요)</label>' +
+        '<input id="setRoom" maxlength="32" value="' + esc(S.room) + '" /></div>' +
+      '<div class="field"><label>색상</label><div class="swatches" id="setSwatches">' +
+        PALETTE.map(function (c) {
+          return '<button type="button" class="swatch" data-act="swatch" data-color="' + c + '" aria-pressed="' + (S.accent === c) + '" style="background:' + c + '"></button>';
+        }).join('') + '</div></div>' +
+      '<div class="sheet-actions">' +
+        '<button type="button" class="btn primary" data-act="save-settings">저장</button>' +
+        '<button type="button" class="btn" data-act="copy-invite">초대 링크 복사</button>' +
+      '</div>' +
+      '<p class="hint">설정은 이 브라우저에 저장돼요. 방 이름을 바꾸면 새 방으로 이어집니다.</p>',
+      function (root) {
+        $$('.swatch', root).forEach(function (b) {
+          b.addEventListener('click', function () {
+            $$('.swatch', root).forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
+            b.setAttribute('aria-pressed', 'true');
+          });
+        });
+      });
   }
 
-  ['setBody', 'setAccent', 'setGlow'].forEach(function (id) {
-    $('#' + id).addEventListener('input', function () {
-      draft = draftProfile();
-      paintPreview();
-      syncPresetState();
-    });
-  });
-  ['setName', 'setOwner', 'setStatus'].forEach(function (id) {
-    $('#' + id).addEventListener('input', function () {
-      draft = draftProfile();
-      paintPreview();
-    });
-  });
-
-  $('#settingsForm').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var next = draftProfile();
-    me.name = next.name;
-    me.owner = next.owner;
-    me.body = next.body;
-    me.accent = next.accent;
-    me.glow = next.glow;
-    me.status = next.status;
-    saveProfile();
-    renderMe();
-    renderRoster();
-    sendState(true);
-
-    var fb = $('#setFirebase').value.trim();
-    Store.set('pickleoffice.firebase', fb);
-    if (fb && (!cloud || cloud.url !== fb.replace(/\/+$/, ''))) bootCloud(fb);
-
-    var nextRoom = sanitizeRoom($('#setRoom').value) || room;
-    if (nextRoom !== room) {
-      Store.set('pickleoffice.room', nextRoom);
-      var base = location.pathname + '?room=' + encodeURIComponent(nextRoom);
-      settingsDlg.close();
-      location.href = base;
-      return;
-    }
-
-    settingsDlg.close();
-    showToast('저장했습니다');
-  });
-
-  $$('[data-close]').forEach(function (b) {
-    b.addEventListener('click', function () {
-      if (settingsDlg.open) settingsDlg.close();
-      if (welcomeDlg.open) welcomeDlg.close();
-      if (teamDlg.open) teamDlg.close();
-    });
-  });
-
-  function inviteLink() {
-    return location.origin + location.pathname + '?room=' + encodeURIComponent(room);
+  function openAddPart(editId) {
+    var p = editId ? partById(editId) : null;
+    var roles = ['기획·일정', '개발·리서치', '총무·운영', '리서치', '콘텐츠', '고객 응대'];
+    openSheet(p ? 'AI 동료 수정' : 'AI 동료 추가',
+      '<div class="field"><label for="apName">이름</label>' +
+        '<input id="apName" maxlength="10" placeholder="예: 모아" value="' + esc(p ? p.name : '') + '" /></div>' +
+      '<div class="field"><label for="apRole">담당 파트</label>' +
+        '<input id="apRole" maxlength="16" placeholder="예: 기획·일정" value="' + esc(p ? p.role : '') + '" list="roleList" />' +
+        '<datalist id="roleList">' + roles.map(function (r) { return '<option value="' + r + '">'; }).join('') + '</datalist></div>' +
+      '<div class="field"><label for="apStatus">지금 하는 일</label>' +
+        '<input id="apStatus" maxlength="40" placeholder="예: 이번 주 계획표 정리 중" value="' + esc(p ? p.status : '') + '" /></div>' +
+      '<div class="field"><label>색상</label><div class="swatches" id="apSwatches">' +
+        PALETTE.map(function (c) {
+          var cur = p ? p.accent === c : c === '#7b61d9';
+          return '<button type="button" class="swatch" data-color="' + c + '" aria-pressed="' + cur + '" style="background:' + c + '"></button>';
+        }).join('') + '</div></div>' +
+      '<div class="sheet-actions">' +
+        '<button type="button" class="btn primary" data-act="save-part" data-edit="' + (p ? p.id : '') + '">' + (p ? '저장' : '동료 들이기') + '</button>' +
+        (p ? '<button type="button" class="btn danger" data-act="ask-remove-part" data-part="' + p.id + '">내보내기</button>' : '') +
+      '</div>',
+      function (root) {
+        $$('.swatch', root).forEach(function (b) {
+          b.addEventListener('click', function () {
+            $$('.swatch', root).forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
+            b.setAttribute('aria-pressed', 'true');
+          });
+        });
+      });
   }
 
-  function copyInvite() {
-    var link = inviteLink();
-    var done = function () { showToast('초대 링크를 복사했습니다'); showMini('링크 복사됨'); };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(link).then(done).catch(fallback);
+  function savePart(editId, root) {
+    var name = ($('#apName', root) || {}).value;
+    name = (name || '').trim();
+    var role = (($('#apRole', root) || {}).value || '').trim();
+    var status = (($('#apStatus', root) || {}).value || '').trim();
+    var sw = $('.swatch[aria-pressed="true"]', root);
+    var accent = sw ? sw.getAttribute('data-color') : PALETTE[0];
+    if (!name) { toast('이름을 적어 주세요'); return; }
+
+    if (editId) {
+      var p = partById(editId);
+      if (!p) return;
+      p.name = name;
+      p.role = role || p.role;
+      p.status = status || p.status;
+      p.accent = accent;
+      if (editId === 'chief') { S.name = name; S.accent = accent; }
     } else {
-      fallback();
+      var id = 'p' + uid().slice(0, 6);
+      S.parts.push({
+        id: id, name: name, role: role || '새 파트', zone: role || '새 파트',
+        accent: accent, on: true, status: status || '새로 합류했어요',
+        line: name + '입니다. 잘 부탁드립니다!', anchor: [50, 44]
+      });
     }
-    function fallback() {
-      var ta = document.createElement('textarea');
-      ta.value = link;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); done(); } catch (e) { showToast(link); }
-      document.body.removeChild(ta);
-    }
+    save();
+    closeSheet();
+    toast(editId ? '동료 정보를 저장했어요' : name + ' 님이 합류했어요');
+    renderCurrent();
+    if (net) net.send({ kind: 'state', name: S.name, owner: S.owner, level: level(), accent: S.accent });
   }
 
-  $('#inviteBtn').addEventListener('click', copyInvite);
-  $('#copyInviteBtn').addEventListener('click', copyInvite);
-  $('#settingsBtn').addEventListener('click', openSettings);
-  $('#roomChip').addEventListener('click', openSettings);
-  teamBtn.addEventListener('click', openTeam);
-  $('#aiAddBtn').addEventListener('click', addAIFromForm);
-  $('#teamReset').addEventListener('click', function () {
-    var added = 0;
-    AI_DEFAULTS.forEach(function (d) {
-      if (aiTeam.some(function (a) { return a.id === d.id; })) return;
-      var cfg = normalizeAI(d);
-      if (cfg) { aiTeam.push(cfg); added++; }
-    });
-    if (added) {
-      saveAITeam();
-      syncAITeam();
-      renderTeamList();
-      showMini('기본 동료 ' + added + '명을 다시 불렀습니다');
-    } else {
-      showMini('기본 동료가 이미 모두 있습니다');
-    }
-  });
-  $('#newRoomBtn').addEventListener('click', function () {
-    var id = 'office-' + Math.random().toString(36).slice(2, 7);
-    $('#setRoom').value = id;
-    showMini('새 방 이름: ' + id + ' — 저장하면 이동합니다');
-  });
-
-  /* ── 첫 방문 ─────────────────────────────── */
-
-  function openWelcome() {
-    buildPresets($('#wPresetRow'), function (p) {
-      $('#welcomeDlg').dataset.body = p.body;
-      $('#welcomeDlg').dataset.accent = p.accent;
-      $('#welcomeDlg').dataset.glow = p.glow;
-    });
-    welcomeDlg.showModal();
+  function askRemovePart(id) {
+    var p = partById(id);
+    if (!p) return;
+    openSheet('동료 내보내기',
+      '<p class="sheet-note">' + esc(p.name) + ' 님을 작업실에서 내보낼까요? 메모와 대화는 그대로 남습니다.</p>' +
+      '<div class="sheet-actions">' +
+        '<button type="button" class="btn danger" data-act="remove-part" data-part="' + id + '">내보내기</button>' +
+        '<button type="button" class="btn" data-act="close-sheet">취소</button>' +
+      '</div>');
   }
 
-  $('#welcomeStart').addEventListener('click', function () {
-    var name = cleanText($('#wName').value, 14) || '크림';
-    var owner = cleanText($('#wOwner').value, 14);
-    me.name = name;
-    me.owner = owner;
-    if (welcomeDlg.dataset.body) {
-      me.body = validColor(welcomeDlg.dataset.body, me.body);
-      me.accent = validColor(welcomeDlg.dataset.accent, me.accent);
-      me.glow = validColor(welcomeDlg.dataset.glow, me.glow);
-    }
-    saveProfile();
-    renderMe();
-    renderRoster();
-    sendState(true);
-    welcomeDlg.close();
-    hideHint();
-    scheduleAIGreeting(1400);
-  });
+  function removePart(id) {
+    S.parts = S.parts.filter(function (p) { return p.id !== id; });
+    save(); closeSheet(); renderCurrent();
+    toast('동료를 내보냈어요');
+  }
 
-  /* ── 입력 ───────────────────────────────── */
+  function togglePart(id) {
+    var p = partById(id);
+    if (!p) return;
+    p.on = !p.on;
+    p.status = p.on ? p.status.replace(/^쉬는 중/, '대기 중') : p.status;
+    save(); renderCurrent();
+  }
 
-  canvas.addEventListener('pointerdown', onPointer);
+  /* ── render: meeting ───────────────────── */
+  function renderMeeting() {
+    var host = $('#view-meeting');
+    if (!host) return;
+    host.innerHTML =
+      '<div class="meeting-grid">' +
+        '<section class="card chat-card">' +
+          '<div class="chat-head">' +
+            '<div><h2>회의실</h2><div class="sub" id="chatSub"></div></div>' +
+            '<div class="party" id="chatParty"></div>' +
+          '</div>' +
+          '<div class="messages" id="messages" aria-live="polite"></div>' +
+          '<div class="quick-row" id="quickRow"></div>' +
+          '<form class="composer" id="composer" autocomplete="off">' +
+            '<input id="chatInput" maxlength="400" placeholder="AI 동료에게 말을 걸어 보세요" aria-label="메시지" />' +
+            '<button type="submit" id="sendBtn">전송</button>' +
+          '</form>' +
+        '</section>' +
+        '<aside class="office-side">' +
+          '<section class="card side-card">' +
+            '<div class="side-head"><h3>이 방의 파트</h3><span id="partyCount"></span></div>' +
+            '<div class="rows" id="partyRows"></div>' +
+            '<p class="hint" style="padding:6px 2px 10px">빠른 인사로 대화를 시작해 보세요. 답장은 동료들이 직접 남깁니다.</p>' +
+          '</section>' +
+        '</aside>' +
+      '</div>';
 
-  window.addEventListener('keydown', function (e) {
-    var tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-    if (tag === 'input' || tag === 'textarea' || tag === 'select' || (e.target && e.target.isContentEditable)) {
-      if (e.key === 'Escape' && e.target.blur) e.target.blur();
-      return;
-    }
-    if (e.key === '/' ) {
+    $('#composer').addEventListener('submit', function (e) {
       e.preventDefault();
-      chatInput.focus();
+      var input = $('#chatInput');
+      var v = (input.value || '').trim();
+      if (!v) return;
+      input.value = '';
+      sendChat(v);
+    });
+
+    renderChatHead();
+    renderQuick();
+    renderMessages();
+    renderPartyRows();
+    scrollMessages();
+  }
+
+  function renderChatHead() {
+    var sub = $('#chatSub');
+    if (sub) sub.textContent = 'AI 동료 ' + activeParts().length + '명' + (Object.keys(remotes).length ? ' · 피클 ' + Object.keys(remotes).length + '명' : '');
+    var party = $('#chatParty');
+    if (!party) return;
+    var act = activeParts();
+    party.innerHTML = act.slice(0, 4).map(function (p) {
+      return '<span class="row-avatar" style="background:' + p.accent + '" title="' + esc(p.name) + '">' + esc(initial(p.name)) + '</span>';
+    }).join('') + (act.length > 4 ? '<span class="more">+' + (act.length - 4) + '</span>' : '');
+  }
+
+  function renderPartyRows() {
+    var host = $('#partyRows');
+    if (!host) return;
+    var act = activeParts();
+    var html = act.map(function (p) {
+      return '<button type="button" class="row" data-act="talk-part" data-part="' + p.id + '">' +
+        '<span class="row-avatar" style="background:' + p.accent + '">' + esc(initial(p.name)) + '</span>' +
+        '<span class="row-body">' +
+          '<span class="row-title"><span class="state-dot"></span>' + esc(p.name) + '</span>' +
+          '<span class="row-sub">' + esc(p.role) + '</span>' +
+        '</span></button>';
+    }).join('');
+    Object.keys(remotes).forEach(function (id) {
+      var r = remotes[id];
+      html += '<div class="row">' +
+        '<span class="row-avatar" style="background:' + r.accent + '">' + esc(initial(r.name)) + '</span>' +
+        '<span class="row-body"><span class="row-title">' + esc(r.name) + '</span>' +
+        '<span class="row-sub">' + esc(r.owner || '다른 피클') + '</span></span>' +
+        '<span class="state-dot"></span></div>';
+    });
+    if (!html) html = '<div class="empty">지금은 조용해요. 작업실에서 동료를 켜 보세요.</div>';
+    host.innerHTML = html;
+    var pc = $('#partyCount');
+    if (pc) pc.textContent = act.length + '명';
+  }
+
+  function renderQuick() {
+    var row = $('#quickRow');
+    if (!row) return;
+    var qs = ['안녕하세요', '오늘 일정 알려줘', '진행 상황 공유해줘', '회의실 비어 있어?'];
+    row.innerHTML = qs.map(function (q) {
+      return '<button type="button" class="quick" data-act="quick" data-text="' + esc(q) + '">' + esc(q) + '</button>';
+    }).join('');
+  }
+
+  function renderMessages() {
+    var host = $('#messages');
+    if (!host) return;
+    if (!S.chat.length) {
+      host.innerHTML = '<div class="empty">아직 대화가 없어요.<br>아래에 인사를 남기면 동료들이 답합니다.</div>';
       return;
     }
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].indexOf(e.key) !== -1) e.preventDefault();
-    keys[e.key] = true;
-    if (['w', 'a', 's', 'd', 'W', 'A', 'S', 'D'].indexOf(e.key) !== -1) hideHint();
-  });
-  window.addEventListener('keyup', function (e) { keys[e.key] = false; });
-  window.addEventListener('blur', function () { keys = {}; });
+    host.innerHTML = S.chat.map(function (m) {
+      var mine = !!m.mine;
+      return '<div class="msg' + (mine ? ' is-me' : '') + '">' +
+        '<span class="msg-avatar" style="background:' + (m.accent || '#8b95a3') + '">' + esc(initial(m.name)) + '</span>' +
+        '<div class="msg-col">' +
+          '<div class="msg-meta"><b>' + esc(mine ? S.name : (m.name || '피클')) + '</b><span>' + esc(m.role || '') + '</span><span>' + timeLabel(m.at) + '</span></div>' +
+          '<div class="msg-bubble">' + esc(m.text) + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
 
-  chatForm.addEventListener('submit', function (e) {
-    e.preventDefault();
-    var v = chatInput.value;
-    chatInput.value = '';
-    sendChat(v);
-  });
+  function scrollMessages() {
+    var host = $('#messages');
+    if (host) host.scrollTop = host.scrollHeight;
+  }
 
-  taskForm.addEventListener('submit', function (e) {
-    e.preventDefault();
-    var t = cleanText(taskInput.value, 60);
-    taskInput.value = '';
-    if (!t) return;
-    tasks.push({ id: 't' + nowMs() + Math.random().toString(16).slice(2, 5), text: t, done: false, by: me.name });
-    tasks = tasks.slice(-40);
-    tasksChanged(true);
-    aiAckTask(t);
-  });
+  function setComposer(text) {
+    var input = $('#chatInput');
+    if (input) { input.value = text; input.focus({ preventScroll: true }); }
+  }
 
-  // 빠른 인사
-  var quickRow = $('#quickRow');
-  QUICKS.forEach(function (q) {
-    var b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'quick-chip';
-    b.textContent = q;
-    b.addEventListener('click', function () { sendChat(q); });
-    quickRow.appendChild(b);
-  });
+  function sendChat(text) {
+    var mine = { id: uid(), mine: true, name: S.name, role: '지휘', accent: S.accent, text: text, at: Date.now() };
+    S.chat.push(mine);
+    S.chat = S.chat.slice(-60);
+    saveSoon();
+    renderMessages();
+    scrollMessages();
+    if (net) net.send({ kind: 'chat', text: text, name: S.name, role: '지휘', accent: S.accent });
+    aiReply(text);
+  }
 
-  // 탭
-  $$('.tab').forEach(function (tab) {
-    tab.addEventListener('click', function () {
-      $$('.tab').forEach(function (t) {
-        t.classList.toggle('is-active', t === tab);
-        t.setAttribute('aria-selected', t === tab ? 'true' : 'false');
-      });
-      $$('.tab-body').forEach(function (body) {
-        body.hidden = body.dataset.body !== tab.dataset.tab;
-      });
+  function roleMatches(p, cat) {
+    if (p.id === cat) return true;
+    var r = p.role || '';
+    if (cat === 'chief') return /지휘|비서/.test(r);
+    if (cat === 'plan') return /기획|일정|계획/.test(r);
+    if (cat === 'dev') return /개발|리서치|조사|분석/.test(r);
+    if (cat === 'ops') return /총무|운영|관리|고객/.test(r);
+    return false;
+  }
+
+  function pickPartFor(text) {
+    var t = String(text).toLowerCase();
+    var act = activeParts();
+    if (!act.length) return null;
+    var want = null;
+    if (/안녕|하이|반가|수고|고마|감사/.test(t)) want = 'chief';
+    else if (/일정|스케줄|회의|캘린더|약속|계획|날짜/.test(t)) want = 'plan';
+    else if (/개발|리서치|조사|코드|버그|자료|시장|경쟁|분석/.test(t)) want = 'dev';
+    else if (/총무|비품|배송|택배|예약|구매|정리|준비|다과/.test(t)) want = 'ops';
+    var p = want ? act.filter(function (x) { return roleMatches(x, want); })[0] : null;
+    if (p) return p;
+    return act[Math.floor(Math.random() * act.length)];
+  }
+
+  function replyBank(p) {
+    if (REPLIES[p.id]) return REPLIES[p.id];
+    if (roleMatches(p, 'plan')) return REPLIES.plan;
+    if (roleMatches(p, 'dev')) return REPLIES.dev;
+    if (roleMatches(p, 'ops')) return REPLIES.ops;
+    return REPLIES.chief;
+  }
+
+  function aiReply(text) {
+    var p = pickPartFor(text);
+    if (!p) return;
+    var delay = 700 + Math.random() * 900;
+    var typing = { id: 'typing', typing: true, name: p.name, role: p.role, accent: p.accent, at: Date.now() };
+
+    setTimeout(function () {
+      if (S.tab !== 'meeting') { markTabDot('meeting'); }
+      var host = $('#messages');
+      if (host && S.tab === 'meeting') {
+        var el = document.createElement('div');
+        el.className = 'msg is-typing';
+        el.id = 'typingRow';
+        el.innerHTML = '<span class="msg-avatar" style="background:' + p.accent + '">' + esc(initial(p.name)) + '</span>' +
+          '<div class="msg-col"><div class="msg-meta"><b>' + esc(p.name) + '</b><span>' + esc(p.role) + '</span></div>' +
+          '<div class="msg-bubble"><span class="typing-dots"><i></i><i></i><i></i></span></div></div>';
+        host.appendChild(el);
+        scrollMessages();
+      }
+
+      setTimeout(function () {
+        var row = $('#typingRow');
+        if (row) row.remove();
+        var pool = replyBank(p);
+        var rep = /안녕|하이|반가/.test(text) && Math.random() < 0.6
+          ? GREET_REPLIES[Math.floor(Math.random() * GREET_REPLIES.length)]
+          : pool[Math.floor(Math.random() * pool.length)];
+        S.chat.push({
+          id: uid(), mine: false, name: p.name, role: p.role,
+          accent: p.accent, text: rep, at: Date.now()
+        });
+        S.chat = S.chat.slice(-60);
+        saveSoon();
+        if (S.tab === 'meeting') { renderMessages(); scrollMessages(); }
+        else markTabDot('meeting');
+      }, 620 + Math.random() * 700);
+    }, delay);
+    void typing;
+  }
+
+  /* ── render: workshop ──────────────────── */
+  function renderWorkshop() {
+    var host = $('#view-workshop');
+    if (!host) return;
+    var cards = S.parts.map(function (p) {
+      return '<section class="card part-card">' +
+        '<div class="part-top">' +
+          '<span class="row-avatar" style="background:' + p.accent + '">' + esc(initial(p.name)) + '</span>' +
+          '<div class="part-main">' +
+            '<div class="part-name">' + esc(p.name) +
+              (p.id === 'chief' ? '<span class="badge-lv">Lv.' + level() + '</span>' : '') +
+            '</div>' +
+            '<div class="part-role">' + esc(p.role) + (p.zone && p.zone !== p.role ? ' · ' + esc(p.zone) : '') + '</div>' +
+          '</div>' +
+          '<div class="part-tools">' +
+            '<button type="button" class="switch" role="switch" aria-checked="' + (p.on ? 'true' : 'false') + '" data-act="toggle-part" data-part="' + p.id + '" aria-label="' + esc(p.name) + ' 가동 전환"></button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="part-status"><span class="state-dot' + (p.on ? '' : ' is-off') + '"></span><span>' + esc(p.on ? p.status : '쉬는 중') + '</span></div>' +
+        '<div class="part-actions">' +
+          '<button type="button" class="btn" data-act="talk-part" data-part="' + p.id + '">대화</button>' +
+          '<button type="button" class="btn" data-act="edit-part" data-part="' + p.id + '">수정</button>' +
+          (p.id === 'chief' ? '' : '<button type="button" class="btn danger" data-act="ask-remove-part" data-part="' + p.id + '">내보내기</button>') +
+        '</div>' +
+      '</section>';
+    }).join('');
+
+    host.innerHTML =
+      '<div class="workshop-grid">' + cards +
+        '<button type="button" class="add-part" data-act="add-part">＋ AI 동료 추가</button>' +
+        '<p class="hint">파트를 켜고 끄면 오피스 핀과 현황에 바로 반영돼요. 꺼 둔 파트는 대화에 답하지 않습니다.</p>' +
+      '</div>';
+  }
+
+  /* ── render: status ────────────────────── */
+  function renderStatus() {
+    var host = $('#view-status');
+    if (!host) return;
+    var act = activeParts();
+    var remoteList = Object.keys(remotes).map(function (k) { return remotes[k]; });
+
+    var partsHTML = S.parts.map(function (p) {
+      return '<div class="phase">' +
+        '<span class="row-avatar" style="background:' + p.accent + '">' + esc(initial(p.name)) + '</span>' +
+        '<span><span class="phase-name">' + esc(p.name) + '</span>' +
+          '<span class="phase-sub" style="display:block">' + esc(p.role) + '</span></span>' +
+        '<span class="phase-val">' + (p.on ? '가동 중' : '쉬는 중') + '</span>' +
+      '</div>';
+    }).join('');
+
+    var picklesHTML = remoteList.length
+      ? remoteList.map(function (r) {
+          return '<div class="phase">' +
+            '<span class="row-avatar" style="background:' + r.accent + '">' + esc(initial(r.name)) + '</span>' +
+            '<span><span class="phase-name">' + esc(r.name) + '</span>' +
+              '<span class="phase-sub" style="display:block">' + esc(r.owner || '다른 피클') + '</span></span>' +
+            '<span class="phase-val">Lv.' + (r.level || 2) + ' · 접속 중</span>' +
+          '</div>';
+        }).join('')
+      : '<div class="empty">아직 함께 접속한 피클이 없어요.<br>초대 링크를 보내면 이 방에서 만날 수 있어요.</div>';
+
+    host.innerHTML =
+      '<div class="status-grid">' +
+        '<section class="card me-card span-2">' +
+          '<div class="me-top">' +
+            '<span class="row-avatar" style="background:' + S.accent + '">' + esc(initial(S.name)) + '</span>' +
+            '<div><div class="me-name">' + esc(S.name) + '<span class="badge-lv">Lv.' + level() + '</span></div>' +
+            '<div class="me-owner">' + esc(S.owner) + '</div></div>' +
+          '</div>' +
+          '<div class="me-stats">' +
+            '<div class="stat"><b>' + act.length + '</b><span>가동 파트</span></div>' +
+            '<div class="stat"><b>' + remoteList.length + '</b><span>연결된 피클</span></div>' +
+            '<div class="stat"><b>' + S.memos.filter(function (m) { return !m.done; }).length + '</b><span>남은 메모</span></div>' +
+          '</div>' +
+        '</section>' +
+        '<section class="card side-card">' +
+          '<div class="side-head"><h3>파트 상태</h3><span>' + act.length + '/' + S.parts.length + ' 가동</span></div>' +
+          '<div class="phase-list">' + (partsHTML || '<div class="empty">아직 파트가 없어요.</div>') + '</div>' +
+        '</section>' +
+        '<section class="card side-card">' +
+          '<div class="side-head"><h3>연결된 피클</h3><span>' + remoteList.length + '명</span></div>' +
+          '<div class="phase-list">' + picklesHTML + '</div>' +
+        '</section>' +
+        '<section class="card side-card span-2">' +
+          '<div class="side-head"><h3>시스템</h3><span>' + (netState === 'live' ? 'LIVE' : netState === 'connecting' ? '연결 중' : '로컬') + '</span></div>' +
+          '<div class="kv"><span>실시간 연결</span><b>' + (netState === 'live' ? 'MQTT 연결됨' : netState === 'connecting' ? '브로커 찾는 중' : '이 브라우저 안에서만') + '</b></div>' +
+          '<div class="kv"><span>방 이름</span><b>' + esc(S.room) + '</b></div>' +
+          '<div class="kv"><span>저장 방식</span><b>localStorage · 최근 60개 대화</b></div>' +
+          '<div class="kv"><span>모션</span><b>' + (S.motion ? 'ON' : 'OFF') + '</b></div>' +
+        '</section>' +
+      '</div>';
+  }
+
+  /* ── render: memo ──────────────────────── */
+  function renderMemo() {
+    var host = $('#view-memo');
+    if (!host) return;
+    var items = S.memos;
+    var done = items.filter(function (m) { return m.done; }).length;
+
+    var listHTML = items.length ? items.map(function (m) {
+      return '<div class="memo' + (m.done ? ' is-done' : '') + '" data-id="' + m.id + '">' +
+        '<button type="button" class="memo-check" data-act="toggle-memo" data-id="' + m.id + '" aria-label="완료 표시" aria-pressed="' + (m.done ? 'true' : 'false') + '">' +
+          '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>' +
+        '</button>' +
+        '<div class="memo-body">' +
+          '<div class="memo-text">' + esc(m.text) + '</div>' +
+          '<div class="memo-meta">' + esc(m.by || S.name) + ' · ' + timeLabel(m.at || Date.now()) + '</div>' +
+        '</div>' +
+        '<button type="button" class="memo-del" data-act="del-memo" data-id="' + m.id + '" aria-label="메모 삭제">' +
+          '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+        '</button>' +
+      '</div>';
+    }).join('') : '<div class="empty">아직 메모가 없어요.<br>오늘 챙길 일을 한 줄로 남겨 보세요.</div>';
+
+    host.innerHTML =
+      '<div class="memo-grid">' +
+        '<form class="card memo-form" id="memoForm" autocomplete="off">' +
+          '<input id="memoInput" maxlength="120" placeholder="함께 볼 일을 적어 두세요" aria-label="메모 입력" />' +
+          '<button type="submit" aria-label="메모 추가">' +
+            '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>' +
+          '</button>' +
+        '</form>' +
+        '<section class="card memo-card">' + listHTML + '</section>' +
+        '<aside class="office-side">' +
+          '<section class="card side-card">' +
+            '<div class="side-head"><h3>보드</h3><span>' + done + '/' + items.length + ' 완료</span></div>' +
+            '<div class="kv"><span>남은 일</span><b>' + (items.length - done) + '개</b></div>' +
+            '<div class="kv"><span>오늘 올린 메모</span><b>' + items.filter(function (m) { return new Date(m.at || 0).toDateString() === new Date().toDateString(); }).length + '개</b></div>' +
+            '<p class="hint" style="padding:10px 2px">메모는 이 방에 함께 있는 피클과 실시간으로 맞춰집니다.</p>' +
+          '</section>' +
+        '</aside>' +
+      '</div>';
+
+    var form = $('#memoForm');
+    if (form) form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var input = $('#memoInput');
+      var v = (input.value || '').trim();
+      if (!v) return;
+      input.value = '';
+      S.memos.unshift({ id: uid(), text: v, done: false, by: S.name, at: Date.now() });
+      S.memos = S.memos.slice(0, 80);
+      S.memoRev = Date.now();
+      saveSoon();
+      pushMemos();
+      renderMemo();
+      var again = $('#memoInput');
+      if (again) again.focus();
     });
-  });
-
-  $('#sheetToggle').addEventListener('click', function () {
-    $('#rightPanel').classList.toggle('is-expanded');
-  });
-
-  window.addEventListener('resize', resize);
-  if (window.ResizeObserver) new ResizeObserver(resize).observe(stage);
-
-  window.addEventListener('pagehide', function () {
-    try { net.send({ kind: 'bye', name: me.name }); } catch (e) { /* noop */ }
-  });
-
-  /* ── 시작 ───────────────────────────────── */
-
-  function loadLocalHistory() {
-    var saved = Store.json('pickleoffice.messages.' + room, []);
-    if (Array.isArray(saved)) {
-      saved.slice(-30).forEach(function (m) {
-        if (m && m.id && m.text) {
-          addMessage({ id: m.id, from: m.from || 'past', name: m.name || '피클', body: m.body || '#B9AEC8', text: m.text, at: m.at || nowMs(), hist: true });
-        }
-      });
-    }
-    var savedTasks = Store.json('pickleoffice.tasks.' + room, []);
-    if (Array.isArray(savedTasks) && savedTasks.length) {
-      tasks = savedTasks;
-      taskRev = nowMs();
-    }
   }
 
-  function start() {
-    var hadProfile = loadProfile();
-    var spots = [[620, 376], [300, 376], [900, 376], [330, 700], [900, 640], [1120, 640], [130, 300]];
-    var pick = spots[Math.floor(Math.random() * spots.length)];
-    var spawn = freePoint(pick[0] + (Math.random() - 0.5) * 60, pick[1] + (Math.random() - 0.5) * 40);
-    if (spawn) { me.x = spawn.x; me.y = spawn.y; me.dx = spawn.x; me.dy = spawn.y; }
-    renderMe();
-    renderRoster();
-    loadAITeam();
-    syncAITeam();
-    loadLocalHistory();
-    renderTasks();
-    resize();
-    bootNet();
-
-    var fbUrl = Store.get('pickleoffice.firebase', '');
-    if (fbUrl) bootCloud(fbUrl);
-
-    requestAnimationFrame(frame);
-
-    if (!hadProfile) {
-      setTimeout(openWelcome, 350);
-    } else if (!Store.get('pickleoffice.hinted')) {
-      hintTimer = setTimeout(hideHint, 12000);
-    } else {
-      hideHint();
-    }
-
-    appendSystem('‘' + room + '’ 방에 입장했습니다. 초대 링크로 동료를 불러보세요.');
-    setNetUI('connecting');
-    if (hadProfile) scheduleAIGreeting(3200);
+  function pushMemos() {
+    if (net) net.send({ kind: 'tasks', items: S.memos.slice(0, 80), rev: S.memoRev });
   }
 
-  // 디버깅·테스트용 (읽기 전용)
-  window.__pickleOffice = {
-    room: room,
-    me: me,
-    chars: chars,
-    netStatus: function () { return net ? { live: net.live, broker: net.brokerName } : null; },
-    aiTeam: function () {
-      return aiTeam.map(function (a) { return { id: a.id, name: a.name, role: a.role, zone: a.zone, enabled: a.enabled }; });
-    },
-    aiSay: function (name, text) {
-      var hit = null;
-      chars.forEach(function (c) { if (c.isAI && c.name === name) hit = c; });
-      if (hit) aiSay(hit, text);
-      return !!hit;
-    }
-  };
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', start);
-  } else {
-    start();
+  /* ── toast ─────────────────────────────── */
+  var toastTimer = null;
+  function toast(text) {
+    var el = $('#toast');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.add('is-show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove('is-show'); }, 2200);
   }
+
+  /* ── invite ────────────────────────────── */
+  function inviteURL() {
+    var base = location.origin + location.pathname;
+    return base + (S.room ? '?room=' + encodeURIComponent(S.room) : '');
+  }
+  function copyInvite() {
+    var url = inviteURL();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () { toast('초대 링크를 복사했어요'); })
+        .catch(function () { fallbackCopy(url); });
+    } else fallbackCopy(url);
+  }
+  function fallbackCopy(url) {
+    var ta = document.createElement('textarea');
+    ta.value = url;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); toast('초대 링크를 복사했어요'); }
+    catch (e) { toast('링크: ' + url); }
+    ta.remove();
+  }
+
+  /* ── events ────────────────────────────── */
+  document.addEventListener('click', function (e) {
+    var tabBtn = e.target.closest('.tab');
+    if (tabBtn) { setTab(tabBtn.getAttribute('data-tab')); return; }
+
+    var el = e.target.closest('[data-act]');
+    if (!el) return;
+    var act = el.getAttribute('data-act');
+
+    if (act === 'motion') {
+      S.motion = !S.motion;
+      save();
+      document.body.classList.toggle('motion-on', S.motion);
+      var chip = el;
+      chip.classList.toggle('is-off', !S.motion);
+      chip.setAttribute('aria-pressed', S.motion ? 'true' : 'false');
+      chip.innerHTML = '<span class="chip-dot" aria-hidden="true"></span>모션 ' + (S.motion ? 'ON' : 'OFF');
+      if (!S.motion) { var b = $('#mapBubble'); if (b) b.classList.remove('is-show'); }
+      else showBubble(activeParts()[0] || S.parts[0] || { anchor: [50, 40], line: '다시 움직여 볼게요.' });
+      scheduleBubble();
+      toast('모션 ' + (S.motion ? '켬' : '껐어요'));
+      return;
+    }
+    if (act === 'pin') { openSpaceSheet(el.getAttribute('data-space')); return; }
+    if (act === 'close-sheet') { closeSheet(); return; }
+    if (act === 'go-meeting') {
+      var pre = el.getAttribute('data-prefill') || '';
+      closeSheet();
+      setTab('meeting', { prefill: pre, focus: !pre });
+      return;
+    }
+    if (act === 'go-workshop') { closeSheet(); setTab('workshop'); return; }
+    if (act === 'talk-part') {
+      var p = partById(el.getAttribute('data-part'));
+      if (!p) return;
+      closeSheet();
+      setTab('meeting', { prefill: p.name + ', 지금 상황 알려줘', focus: false });
+      return;
+    }
+    if (act === 'quick') {
+      var t = el.getAttribute('data-text');
+      sendChat(t);
+      return;
+    }
+    if (act === 'add-part') { openAddPart(null); return; }
+    if (act === 'edit-part') { openAddPart(el.getAttribute('data-part')); return; }
+    if (act === 'save-part') { savePart(el.getAttribute('data-edit'), $('#sheetBody')); return; }
+    if (act === 'ask-remove-part') { askRemovePart(el.getAttribute('data-part')); return; }
+    if (act === 'remove-part') { removePart(el.getAttribute('data-part')); return; }
+    if (act === 'toggle-part') { togglePart(el.getAttribute('data-part')); return; }
+    if (act === 'swatch') {
+      var wrap = el.parentElement;
+      $$('.swatch', wrap).forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
+      el.setAttribute('aria-pressed', 'true');
+      return;
+    }
+    if (act === 'save-settings') {
+      var name = ($('#setName') || {}).value;
+      var owner = ($('#setOwner') || {}).value;
+      var room = ($('#setRoom') || {}).value;
+      name = (name || '').trim(); owner = (owner || '').trim(); room = (room || '').trim();
+      if (name) S.name = name;
+      if (owner) S.owner = owner;
+      var sw = $('#setSwatches .swatch[aria-pressed="true"]');
+      if (sw) {
+        S.accent = sw.getAttribute('data-color');
+        var chief = partById('chief');
+        if (chief) chief.accent = S.accent;
+      }
+      var roomChanged = room && room !== S.room;
+      if (room) S.room = room;
+      save();
+      closeSheet();
+      if (chiefNameFix()) { /* noop */ }
+      toast('설정을 저장했어요');
+      renderCurrent();
+      if (roomChanged) {
+        toast('방 이름이 바뀌었어요 · 새로 연결합니다');
+        if (net) { try { net.stop(); } catch (e) { /* noop */ } }
+        remotes = {};
+        netState = 'connecting';
+        bootNet();
+      }
+      return;
+    }
+    if (act === 'copy-invite') { copyInvite(); return; }
+    if (act === 'toggle-memo') {
+      var id = el.getAttribute('data-id');
+      S.memos = S.memos.map(function (m) { return m.id === id ? Object.assign({}, m, { done: !m.done }) : m; });
+      S.memoRev = Date.now();
+      save(); pushMemos(); renderMemo();
+      return;
+    }
+    if (act === 'del-memo') {
+      var did = el.getAttribute('data-id');
+      S.memos = S.memos.filter(function (m) { return m.id !== did; });
+      S.memoRev = Date.now();
+      save(); pushMemos(); renderMemo();
+      return;
+    }
+  });
+
+  function chiefNameFix() {
+    var chief = partById('chief');
+    if (chief && chief.name !== S.name) { chief.name = S.name; return true; }
+    return false;
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && sheetOpen) closeSheet();
+  });
+  $('#scrim').addEventListener('click', closeSheet);
+  $('#inviteBtn').addEventListener('click', copyInvite);
+  $('#settingsBtn').addEventListener('click', openSettings);
+
+  /* ── boot ──────────────────────────────── */
+  if (S.chat.length === 0) {
+    S.chat.push({
+      id: uid(), mine: false, name: '모아', role: '기획·일정', accent: '#5b76e8',
+      text: '대표님, 이번 주 일정표 정리해서 올려두었어요. 확인해 보실래요?',
+      at: Date.now() - 42e5
+    });
+    S.chat.push({
+      id: uid(), mine: false, name: '하루', role: '총무·운영', accent: '#2aa98a',
+      text: '회의실 예약과 다과는 준비됐습니다. 필요한 것 있으면 말씀해 주세요.',
+      at: Date.now() - 18e5
+    });
+  }
+
+  document.body.classList.toggle('motion-on', !!S.motion);
+  renderChrome();
+  setTab('office');
+  bootNet();
 })();
