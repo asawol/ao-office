@@ -696,7 +696,8 @@ button.chip{transition:background .16s,color .16s,border-color .16s}
     gap:18px;
     align-items:start;
   }
-  .messages{max-height:min(58vh,560px)}
+  .chat-card{min-height:min(64vh,660px)}
+  .messages{max-height:none;flex:1 1 auto}
   .workshop-grid{
     display:grid;
     grid-template-columns:repeat(2,minmax(0,1fr));
