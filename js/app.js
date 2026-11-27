@@ -391,10 +391,10 @@
 
   function pickStatusForZone(zone) {
     var pool = {
-      work: ['work', 'work', 'work', 'break'],
-      meeting: ['meeting', 'meeting', 'meeting', 'work'],
+      work: ['work', 'work', 'work', 'work', 'break'],
+      meeting: ['meeting', 'meeting', 'meeting', 'meeting', 'work'],
       cafe: ['break', 'break', 'break', 'work'],
-      focus: ['work', 'work', 'work', 'break']
+      focus: ['work', 'work', 'work', 'work', 'break']
     }[zone] || ['work'];
     return pool[Math.floor(Math.random() * pool.length)];
   }
