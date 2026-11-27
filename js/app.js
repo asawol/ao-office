@@ -411,7 +411,9 @@
     if (!S.motion) return;
     bubbleTimer = setTimeout(function () {
       if (S.tab !== 'office' || !S.motion) { scheduleBubble(); return; }
-      var act = activeParts();
+      var act = activeParts().filter(function (p) {
+        return SPACES.some(function (sp) { return sp.id === p.id; });
+      });
       if (!act.length) { scheduleBubble(); return; }
       var p = act[Math.floor(Math.random() * act.length)];
       showBubble(p);

@@ -244,7 +244,7 @@ button.chip{transition:background .16s,color .16s,border-color .16s}
 .pin:hover{background:rgba(16,23,34,.96);transform:translate(-50%,-50%) scale(1.03)}
 .pin:active{transform:translate(-50%,-50%) scale(.97)}
 .pin::before{
-  content:"";position:absolute;inset:-9px;border-radius:999px;
+  content:"";position:absolute;inset:-6px;border-radius:999px;
 }
 .pin .dot{
   width:6px;height:6px;border-radius:50%;
