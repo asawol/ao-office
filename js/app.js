@@ -19,11 +19,11 @@
   var STATUSES = [
     { id: 'work', label: '업무중' },
     { id: 'meeting', label: '회의중' },
-    { id: 'break', label: '휴식중' },
-    { id: 'out', label: '외출중' }
+    { id: 'break', label: '자리비움' },
+    { id: 'out', label: '외근중' }
   ];
 
-  var QUICKS = ['안녕하세요! 👋', '회의 중이에요', '잠깐 자리 비울게요', '수고했어요 👏'];
+  var QUICKS = ['안녕하세요', '회의 중입니다', '자리 비웠습니다', '수고하셨습니다'];
 
   var $ = function (s) { return document.querySelector(s); };
   var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
@@ -85,6 +85,7 @@
     nextBlink: 2 + Math.random() * 3,
     bubble: null,
     target: null,
+    path: [],
     stuck: 0,
     lastSeen: nowMs()
   };
@@ -370,7 +371,7 @@
     if (!tasks.length) {
       var p = document.createElement('li');
       p.className = 'task-empty';
-      p.textContent = '아직 적어 둔 업무가 없어요.';
+      p.textContent = '등록된 업무가 없습니다.';
       taskList.appendChild(p);
     }
     tasks.forEach(function (t) {
@@ -480,7 +481,7 @@
     };
     chars.set(id, c);
     renderRoster();
-    appendSystem(c.name + ' 피클이 비서실에 들어왔어요');
+    appendSystem(c.name + ' 피클이 오피스에 들어왔습니다');
     return c;
   }
 
@@ -489,7 +490,7 @@
     if (!c) return;
     chars.delete(id);
     renderRoster();
-    appendSystem(c.name + ' 피클이 나갔어요');
+    appendSystem(c.name + ' 피클이 나갔습니다');
   }
 
   function onNetMessage(msg) {
@@ -661,6 +662,180 @@
     return false;
   }
 
+  /* ── 길찾기 (유리 파티션을 돌아서 이동) ── */
+
+  var nav = null;
+  var NAV_STEP = 14;
+
+  function buildNav() {
+    if (nav) return;
+    // 씬을 먼저 만들어 파티션 장애물을 등록시킨다.
+    if (A.scene) A.scene();
+    var cols = Math.ceil(WORLD.w / NAV_STEP);
+    var rows = Math.ceil(WORLD.h / NAV_STEP);
+    var cells = new Uint8Array(cols * rows);
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
+        var x = c * NAV_STEP + NAV_STEP / 2;
+        var y = r * NAV_STEP + NAV_STEP / 2;
+        cells[r * cols + c] = blocked(x, y) ? 1 : 0;
+      }
+    }
+    nav = { cols: cols, rows: rows, cells: cells };
+  }
+
+  function navFree(c, r) {
+    return c >= 0 && r >= 0 && c < nav.cols && r < nav.rows && !nav.cells[r * nav.cols + c];
+  }
+
+  function navNearestFree(c, r) {
+    if (navFree(c, r)) return { c: c, r: r };
+    for (var d = 1; d < 10; d++) {
+      for (var dr = -d; dr <= d; dr++) {
+        for (var dc = -d; dc <= d; dc++) {
+          if (Math.abs(dr) !== d && Math.abs(dc) !== d) continue;
+          if (navFree(c + dc, r + dr)) return { c: c + dc, r: r + dr };
+        }
+      }
+    }
+    return null;
+  }
+
+  function heapPush(h, node) {
+    h.push(node);
+    var i = h.length - 1;
+    while (i > 0) {
+      var p = (i - 1) >> 1;
+      if (h[p].f <= h[i].f) break;
+      var t = h[p]; h[p] = h[i]; h[i] = t;
+      i = p;
+    }
+  }
+
+  function heapPop(h) {
+    var top = h[0];
+    var last = h.pop();
+    if (h.length) {
+      h[0] = last;
+      var i = 0;
+      for (;;) {
+        var l = i * 2 + 1, r = l + 1, m = i;
+        if (l < h.length && h[l].f < h[m].f) m = l;
+        if (r < h.length && h[r].f < h[m].f) m = r;
+        if (m === i) break;
+        var t = h[m]; h[m] = h[i]; h[i] = t;
+        i = m;
+      }
+    }
+    return top;
+  }
+
+  function clearLine(x1, y1, x2, y2) {
+    var d = Math.hypot(x2 - x1, y2 - y1);
+    var steps = Math.max(1, Math.ceil(d / 8));
+    for (var i = 1; i <= steps; i++) {
+      var x = x1 + (x2 - x1) * (i / steps);
+      var y = y1 + (y2 - y1) * (i / steps);
+      if (blocked(x, y)) return false;
+    }
+    return true;
+  }
+
+  function smoothPath(pts) {
+    if (pts.length <= 2) return pts;
+    var out = [pts[0]];
+    var i = 0;
+    while (i < pts.length - 1) {
+      var j = pts.length - 1;
+      while (j > i + 1 && !clearLine(pts[i].x, pts[i].y, pts[j].x, pts[j].y)) j--;
+      out.push(pts[j]);
+      i = j;
+    }
+    return out.slice(1);
+  }
+
+  function findPath(sx, sy, tx, ty) {
+    buildNav();
+    var sc = clamp(Math.floor(sx / NAV_STEP), 0, nav.cols - 1);
+    var sr = clamp(Math.floor(sy / NAV_STEP), 0, nav.rows - 1);
+    var tc = clamp(Math.floor(tx / NAV_STEP), 0, nav.cols - 1);
+    var tr = clamp(Math.floor(ty / NAV_STEP), 0, nav.rows - 1);
+
+    var s = navNearestFree(sc, sr);
+    var t = navNearestFree(tc, tr);
+    if (!s || !t) return null;
+
+    var cols = nav.cols;
+    var N = cols * nav.rows;
+    var start = s.r * cols + s.c;
+    var goal = t.r * cols + t.c;
+
+    if (start === goal) return [{ x: tx, y: ty }];
+
+    var gScore = new Float32Array(N);
+    gScore.fill(Infinity);
+    var came = new Int32Array(N);
+    came.fill(-1);
+    var closed = new Uint8Array(N);
+
+    function h(c, r) {
+      var dx = Math.abs(c - t.c), dy = Math.abs(r - t.r);
+      return (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy);
+    }
+
+    var open = [];
+    gScore[start] = 0;
+    heapPush(open, { i: start, f: h(s.c, s.r) });
+
+    var dirs = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
+                [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]];
+
+    var found = false;
+    var guard = 0;
+    while (open.length && guard++ < 20000) {
+      var cur = heapPop(open).i;
+      if (closed[cur]) continue;
+      closed[cur] = 1;
+      if (cur === goal) { found = true; break; }
+      var cc = cur % cols, cr = (cur / cols) | 0;
+      for (var k = 0; k < dirs.length; k++) {
+        var nc = cc + dirs[k][0], nr = cr + dirs[k][1];
+        if (!navFree(nc, nr)) continue;
+        if (dirs[k][0] && dirs[k][1]) {
+          if (!navFree(cc + dirs[k][0], cr) || !navFree(cc, cr + dirs[k][1])) continue;
+        }
+        var ni = nr * cols + nc;
+        if (closed[ni]) continue;
+        var ng = gScore[cur] + dirs[k][2];
+        if (ng < gScore[ni]) {
+          gScore[ni] = ng;
+          came[ni] = cur;
+          heapPush(open, { i: ni, f: ng + h(nc, nr) });
+        }
+      }
+    }
+    if (!found) return null;
+
+    var pts = [];
+    var node = goal;
+    while (node !== -1) {
+      pts.push({ x: (node % cols) * NAV_STEP + NAV_STEP / 2, y: ((node / cols) | 0) * NAV_STEP + NAV_STEP / 2 });
+      node = came[node];
+    }
+    pts.reverse();
+    pts[0] = { x: sx, y: sy };
+    pts.push({ x: tx, y: ty });
+    return smoothPath(pts);
+  }
+
+  function setDestination(p) {
+    var path = null;
+    try { path = findPath(me.x, me.y, p.x, p.y); } catch (e) { path = null; }
+    me.path = path && path.length ? path : [p];
+    me.target = me.path[0];
+    me.stuck = 0;
+  }
+
   function tryStep(ch, dx, dy) {
     var moved = false;
     if (!blocked(ch.x + dx, ch.y + dy)) {
@@ -694,7 +869,7 @@
     var wx = (px - view.cw / 2) / view.scale + cam.x;
     var wy = (py - view.ch / 2) / view.scale + cam.y;
     var p = freePoint(wx, wy);
-    if (p) me.target = p;
+    if (p) setDestination(p);
     hideHint();
   }
 
@@ -757,6 +932,7 @@
 
     if (kx || ky) {
       me.target = null;
+      me.path = [];
       var len = Math.hypot(kx, ky) || 1;
       var stepLen = speed * dt;
       tryStep(me, (kx / len) * stepLen, (ky / len) * stepLen);
@@ -768,7 +944,9 @@
       var ddy = me.target.y - me.y;
       var dist = Math.hypot(ddx, ddy);
       if (dist < 3) {
-        me.target = null;
+        me.path = me.path || [];
+        me.path.shift();
+        me.target = me.path.length ? me.path[0] : null;
       } else {
         var step = Math.min(dist, speed * dt);
         var bx = me.x, by = me.y;
@@ -776,7 +954,7 @@
         var moved = Math.hypot(me.x - bx, me.y - by);
         if (moved < step * 0.2) {
           me.stuck += dt;
-          if (me.stuck > 0.3) { me.target = null; me.stuck = 0; }
+          if (me.stuck > 0.3) { me.target = null; me.path = []; me.stuck = 0; }
         } else {
           me.stuck = 0;
         }
@@ -996,7 +1174,7 @@
     }
 
     settingsDlg.close();
-    showToast('내 피클을 저장했어요');
+    showToast('저장했습니다');
   });
 
   $$('[data-close]').forEach(function (b) {
@@ -1012,7 +1190,7 @@
 
   function copyInvite() {
     var link = inviteLink();
-    var done = function () { showToast('초대 링크를 복사했어요'); showMini('초대 링크 복사됨'); };
+    var done = function () { showToast('초대 링크를 복사했습니다'); showMini('링크 복사됨'); };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(link).then(done).catch(fallback);
     } else {
@@ -1037,7 +1215,7 @@
   $('#newRoomBtn').addEventListener('click', function () {
     var id = 'office-' + Math.random().toString(36).slice(2, 7);
     $('#setRoom').value = id;
-    showMini('새 방 이름: ' + id + ' — 저장하면 이동해요');
+    showMini('새 방 이름: ' + id + ' — 저장하면 이동합니다');
   });
 
   /* ── 첫 방문 ─────────────────────────────── */
@@ -1187,7 +1365,7 @@
       hideHint();
     }
 
-    appendSystem('‘' + room + '’ 방에 들어왔어요. 링크를 복사해 피클 친구를 초대해 보세요.');
+    appendSystem('‘' + room + '’ 방에 입장했습니다. 초대 링크로 동료를 불러보세요.');
     setNetUI('connecting');
   }
 
