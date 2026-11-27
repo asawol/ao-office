@@ -113,14 +113,13 @@
   /* 워크스테이션: 3열 벤치 데스크 */
   var DESKS = [
     { x: 80,  y: 148, w: 152, h: 54, cx: 156, cy: 236, mug: '#9E6258', lamp: false, tray: true,  plant: false },
-    { x: 248, y: 148, w: 152, h: 54, cx: 324, cy: 236, mug: '#5C7188', lamp: true,  tray: false, plant: true  },
+    { x: 248, y: 148, w: 152, h: 54, cx: 324, cy: 236, mug: '#5C7188', lamp: true,  tray: false, plant: true, papers: false },
     { x: 416, y: 148, w: 152, h: 54, cx: 492, cy: 236, mug: '#67735F', lamp: true,  tray: false, plant: false }
   ];
   DESKS.forEach(function (d) {
     addRect(d.x, d.y, d.w, d.h, 'desk');
     addCircle(d.cx, d.cy, 16, 'chair');
   });
-
   /* 회의실 테이블 */
   var TABLE = { x: 792, y: 178, w: 300, h: 88 };
   addRect(TABLE.x, TABLE.y, TABLE.w, TABLE.h, 'table');
@@ -145,7 +144,7 @@
   addCircle(566, 700, 12, 'plant');
 
   /* 워크스테이션 좌측 낮은 수납장 */
-  addRect(22, 132, 24, 176, 'credenza');
+  addRect(54, 132, 24, 176, 'credenza');
   /* 워크스테이션 우측 보조 테이블 */
   addRect(470, 282, 86, 34, 'side-table');
   /* 회의실 사이드보드 */
@@ -299,6 +298,15 @@
     for (var gx = 140; gx < WORLD.w - 20; gx += 180) {
       ctx.beginPath(); ctx.moveTo(gx + .5, 330); ctx.lineTo(gx + .5, 420); ctx.stroke();
     }
+
+    // 복도 인레이 (건축 마감선)
+    ctx.strokeStyle = 'rgba(96, 106, 118, .26)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(20, 340); ctx.lineTo(WORLD.w - 20, 340);
+    ctx.moveTo(20, 410); ctx.lineTo(WORLD.w - 20, 410); ctx.stroke();
+    ctx.strokeStyle = 'rgba(96, 106, 118, .14)';
+    ctx.beginPath(); ctx.moveTo(20, 344); ctx.lineTo(WORLD.w - 20, 344);
+    ctx.moveTo(20, 406); ctx.lineTo(WORLD.w - 20, 406); ctx.stroke();
 
     // 각 실 바닥
     woodFloor(ctx, ROOMS.work.x, ROOMS.work.y, ROOMS.work.w, ROOMS.work.h);
@@ -957,7 +965,7 @@
     // 서류 · 트레이 · 스탠드
     if (d.tray) documentTray(ctx, d.x + 12, d.y + d.h - 20);
     if (d.lamp) deskLamp(ctx, d.x + d.w - 26, d.y + d.h - 16);
-    papers(ctx, d.x + 20, d.y + 32, 0.14);
+    if (d.papers !== false) papers(ctx, d.x + 20, d.y + 32, 0.14);
     if (d.plant) plant(ctx, d.x + d.w - 16, d.y + d.h + 2, 0.42, '#4A7A5F');
 
     // 의자
@@ -966,8 +974,8 @@
 
   function drawWorkZone(ctx, t) {
     // 좌측 벽면 수납장
-    credenza(ctx, 22, 132, 24, 176, true);
-    plant(ctx, 33, 300, 0.42, '#4C7C62');
+    credenza(ctx, 54, 132, 24, 176, true);
+    plant(ctx, 66, 300, 0.42, '#4C7C62');
 
     DESKS.forEach(function (d) {
       drawDesk(ctx, d);
