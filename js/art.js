@@ -16,8 +16,8 @@
     wallDark:   '#171C23',
     concrete:   '#D8DCE0',
     corridor:   '#E2E5E9',
-    woodA:      '#C39C74',
-    woodB:      '#BA926A',
+    woodA:      '#BFA07C',
+    woodB:      '#B69874',
     woodSeam:   'rgba(110, 79, 51, .26)',
     carpetA:    '#CDD1D7',
     carpetB:    '#C5CAD1',
@@ -1425,14 +1425,14 @@
     plant(ctx, p.x + 22, p.y + 26, 0.34, '#4A7A5F');
 
     // 라벨
-    ctx.fillStyle = 'rgba(28, 34, 42, .80)';
-    rr(ctx, p.x + 10, p.y + p.h - 22, 54, 13, 2);
+    ctx.fillStyle = 'rgba(28, 34, 42, .78)';
+    rr(ctx, p.x + 38, p.y + 13, 52, 12, 2);
     ctx.fill();
     ctx.fillStyle = 'rgba(236, 240, 244, .92)';
-    ctx.font = '600 7.5px ' + FONT;
+    ctx.font = '600 7px ' + FONT;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(p.tag, p.x + 15, p.y + p.h - 15);
+    ctx.fillText(p.tag, p.x + 43, p.y + 19.5);
 
     // 유리 반사
     ctx.fillStyle = 'rgba(255, 255, 255, .16)';
@@ -1916,8 +1916,8 @@
     ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
 
     var bg = ctx.createLinearGradient(0, 0, 0, view.ch);
-    bg.addColorStop(0, '#E7E9EC');
-    bg.addColorStop(1, '#DDE0E4');
+    bg.addColorStop(0, '#EBEDF0');
+    bg.addColorStop(1, '#DCDFE4');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, view.cw, view.ch);
 
@@ -1925,6 +1925,13 @@
     ctx.translate(view.cw / 2, view.ch / 2);
     ctx.scale(view.scale, view.scale);
     ctx.translate(-view.camX, -view.camY);
+
+    // 도면 외곽 그림자
+    ctx.save();
+    shadow(ctx, 'rgba(20, 26, 34, .26)', 26 / view.scale, 0, 8 / view.scale);
+    ctx.fillStyle = '#D3D7DB';
+    ctx.fillRect(0, 0, WORLD.w, WORLD.h);
+    ctx.restore();
 
     ctx.drawImage(scene(), 0, 0, WORLD.w, WORLD.h);
 

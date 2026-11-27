@@ -899,9 +899,9 @@
   function computeView(dt) {
     var fitW = view.cw / WORLD.w;
     var fitH = view.ch / WORLD.h;
-    var scale = Math.max(fitW, fitH);
+    var scale = Math.min(fitW, fitH);
     if (view.cw < 700) {
-      var zoomed = Math.min(view.cw / (WORLD.w * 0.45), view.ch / (WORLD.h * 0.62));
+      var zoomed = Math.min(view.cw / (WORLD.w * 0.62), view.ch / (WORLD.h * 0.80));
       scale = Math.max(scale, zoomed);
     }
     var viewW = view.cw / scale;
