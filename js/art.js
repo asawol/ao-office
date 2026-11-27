@@ -362,10 +362,17 @@
     ctx.strokeStyle = 'rgba(200,160,120,.45)';
     ctx.lineWidth = 1.4;
     ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,.55)';
+    ctx.fillStyle = 'rgba(255,255,255,.5)';
     ctx.beginPath();
-    ctx.arc(x - r * 0.25, y - r * 0.3, r * 0.35, 0, Math.PI * 2);
+    ctx.arc(x - r * 0.25, y - r * 0.3, r * 0.32, 0, Math.PI * 2);
     ctx.fill();
+    // 등받이
+    ctx.strokeStyle = 'rgba(150, 110, 72, .32)';
+    ctx.lineWidth = Math.max(2, r * 0.38);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.8, Math.PI * 1.06, Math.PI * 1.94);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -673,15 +680,15 @@
     ctx.fillStyle = 'rgba(110,80,50,.17)';
     rr(ctx, 428, 476, 152, 66, 18);
     ctx.fill();
-    ctx.fillStyle = '#E9D9F7';
+    ctx.fillStyle = '#F3BFD4';
     rr(ctx, 424, 468, 152, 66, 18);
     ctx.fill();
-    ctx.fillStyle = '#F2E7FF';
+    ctx.fillStyle = '#FFD8E6';
     rr(ctx, 434, 478, 62, 44, 12);
     ctx.fill();
     rr(ctx, 500, 478, 62, 44, 12);
     ctx.fill();
-    ctx.fillStyle = '#DCC8F2';
+    ctx.fillStyle = '#E9A7C2';
     ctx.beginPath();
     ctx.arc(430, 500, 12, 0, Math.PI * 2);
     ctx.arc(570, 500, 12, 0, Math.PI * 2);
@@ -897,7 +904,7 @@
 
   /* ── 피클 캐릭터 ─────────────────────────── */
 
-  var R = 25;
+  var R = 30;
 
   function drawPickle(ctx, ch, t, isSelf) {
     var x = ch.dx, y = ch.dy;
@@ -1127,7 +1134,7 @@
     var bx = p.x - w / 2;
     var by = p.y - radius * 1.5 - 8 - h;
 
-    ctx.globalAlpha = Math.min(1, (ch.bubble.until - now) / 240);
+    ctx.globalAlpha = Math.min(1, Math.max(0, (ch.bubble.until - now) / 0.3));
 
     ctx.save();
     shadow(ctx, 'rgba(90, 60, 80, .2)', 12, 0, 4);
@@ -1261,6 +1268,14 @@
     // 화면 고정 크기 글자/말풍선
     ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
     drawZoneLabels(ctx, view);
+
+    // 가장자리 비네트
+    var vg = ctx.createRadialGradient(view.cw / 2, view.ch / 2, Math.min(view.cw, view.ch) * 0.34,
+                                      view.cw / 2, view.ch / 2, Math.max(view.cw, view.ch) * 0.72);
+    vg.addColorStop(0, 'rgba(96, 62, 34, 0)');
+    vg.addColorStop(1, 'rgba(96, 62, 34, .13)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, view.cw, view.ch);
 
     list.forEach(function (c) {
       var p = toScreen(c.dx, c.dy, view);

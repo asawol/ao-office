@@ -10,7 +10,7 @@
   var BROKERS = [
     { url: 'wss://broker.emqx.io:8084/mqtt', name: 'EMQX' },
     { url: 'wss://broker.hivemq.com:8884/mqtt', name: 'HiveMQ' },
-    { url: 'wss://mqtt.eclipseprojects.io:443/mqtt', name: 'Eclipse' }
+    { url: 'wss://test.mosquitto.org:8081/mqtt', name: 'mosquitto' }
   ];
 
   function uid() {

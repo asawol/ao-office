@@ -642,7 +642,7 @@
   /* ── 이동 ───────────────────────────────── */
 
   function blocked(x, y) {
-    var r = 16;
+    var r = 18;
     if (x < 40 || x > WORLD.w - 40 || y < 96 || y > WORLD.h - 30) return true;
     var obs = A.OBSTACLES;
     for (var i = 0; i < obs.length; i++) {
@@ -812,6 +812,30 @@
         c.nextBlink = 2 + Math.random() * 4;
       }
     });
+
+    // 캐릭터끼리 겹치지 않게 부드럽게 밀어내기 (화면 위치만)
+    var arr = Array.from(chars.values());
+    for (var i = 0; i < arr.length; i++) {
+      for (var j = i + 1; j < arr.length; j++) {
+        var a = arr[i], b = arr[j];
+        var sdx = b.dx - a.dx, sdy = b.dy - a.dy;
+        var dist = Math.hypot(sdx, sdy);
+        var minD = 46;
+        if (dist < 0.01) { sdx = 1; sdy = 0; dist = 1; }
+        if (dist < minD) {
+          var push = (minD - dist) / 2;
+          var ux = sdx / dist, uy = sdy / dist;
+          if (a.id === myId) {
+            b.dx += ux * push * 2; b.dy += uy * push * 2;
+          } else if (b.id === myId) {
+            a.dx -= ux * push * 2; a.dy -= uy * push * 2;
+          } else {
+            a.dx -= ux * push; a.dy -= uy * push;
+            b.dx += ux * push; b.dy += uy * push;
+          }
+        }
+      }
+    }
 
     sendState(false);
 
@@ -1139,6 +1163,8 @@
 
   function start() {
     var hadProfile = loadProfile();
+    var spawn = freePoint(620 + (Math.random() - 0.5) * 110, 376 + (Math.random() - 0.5) * 34);
+    if (spawn) { me.x = spawn.x; me.y = spawn.y; me.dx = spawn.x; me.dy = spawn.y; }
     renderMe();
     renderRoster();
     loadLocalHistory();
