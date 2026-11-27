@@ -197,6 +197,9 @@ h1, h2, h3 {
 .btn.wide { width: 100%; padding: 11px 14px; font-size: 13.5px; }
 .btn.icon-only { padding: 0; width: 32px; height: 32px; border-radius: var(--radius-md); }
 
+.team-btn { gap: 5px; padding: 7px 11px; font-size: 12px; color: var(--ink-2); }
+.team-btn svg { color: var(--ink-3); }
+
 .btn-avatar {
   width: 16px; height: 16px;
   border-radius: 50%;
@@ -353,6 +356,23 @@ h1, h2, h3 {
 .roster-status[data-status="meeting"] { color: #35557E; }
 .roster-status[data-status="break"] { color: #8E6428; }
 .roster-status[data-status="out"] { color: #6C747F; }
+
+.ai-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 3.5px;
+  border-radius: 3px;
+  border: 1px solid rgba(35, 42, 51, .16);
+  background: rgba(35, 42, 51, .06);
+  color: #3D4550;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  line-height: 13px;
+  vertical-align: 1px;
+}
+.strip-chip .ai-badge { margin-left: 3px; font-size: 7.5px; line-height: 11px; padding: 0 2.5px; }
+.roster-item.is-ai .roster-meta span { color: #8A929C; }
 
 .roster-empty { font-size: 11px; color: var(--muted); padding: 4px 2px; margin: 0; line-height: 1.5; }
 
@@ -696,7 +716,6 @@ h1, h2, h3 {
 }
 
 /* ── modals ───────────────────────────────── */
-
 .modal {
   border: 0;
   padding: 0;
@@ -849,6 +868,95 @@ h1, h2, h3 {
 }
 .modal-foot .btn { min-width: 76px; }
 
+/* ── AI 동료 모달 ──────────────────────── */
+
+.modal-head-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.modal-sub { margin: 0; font-size: 10.5px; line-height: 1.45; color: var(--muted); }
+
+.team-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.team-count { font-size: 10px; font-weight: 500; color: var(--muted); }
+
+.team-list {
+  list-style: none;
+  margin: 0 0 7px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.team-empty { font-size: 11px; color: var(--faint); padding: 12px 2px; margin: 0; line-height: 1.5; }
+.team-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  transition: background .14s ease, opacity .14s ease;
+}
+.team-item:hover { background: var(--surface-2); }
+.team-item.is-off { opacity: .55; }
+.team-item .roster-avatar { width: 26px; height: 26px; flex: 0 0 auto; }
+.team-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
+.team-meta strong { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-meta span { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 32px; height: 18px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-3);
+  transition: background .16s ease, border-color .16s ease;
+}
+.team-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(20, 26, 34, .25);
+  transition: transform .16s ease;
+}
+.team-switch[aria-checked="true"] { background: var(--graphite); border-color: var(--graphite); }
+.team-switch[aria-checked="true"]::after { transform: translateX(14px); }
+.team-del {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--line-3);
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 3px;
+}
+.team-del:hover { color: var(--ink-3); }
+.team-reset {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10.5px;
+  padding: 2px 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.team-reset:hover { color: var(--ink-2); }
+.team-form-title { font-size: 12px; font-weight: 700; margin: 0 0 10px; color: var(--ink); }
+.team-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.team-grid .field { margin-bottom: 10px; }
+.team .modal-body { padding-top: 14px; }
+.team .preset { padding: 4px 8px 4px 4px; font-size: 10.5px; }
+
 .welcome .modal-body { padding-top: 14px; }
 .welcome-lead { font-size: 12.5px; line-height: 1.65; color: var(--ink-3); margin: 0 0 16px; }
 
@@ -886,6 +994,7 @@ h1, h2, h3 {
   .net-pill { padding: 5px 9px; font-size: 10.5px; }
   .btn.primary { padding: 7px 10px; font-size: 11.5px; }
   .btn.icon-only { display: none; }
+  .team-btn { padding: 7px 9px; font-size: 11.5px; }
 
   .layout {
     grid-template-columns: minmax(0, 1fr);
@@ -922,6 +1031,10 @@ h1, h2, h3 {
   .brand-mark { width: 28px; height: 28px; }
   .net-pill span#netText { display: none; }
   .net-pill { padding: 6px; }
+  .team-btn span { display: none; }
+  .team-btn { width: 32px; height: 32px; padding: 0; }
+  .team-btn svg { display: none; }
+  .team-btn::after { content: 'AI'; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
   .right { height: 42dvh; }
 }
 

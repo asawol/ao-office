@@ -146,6 +146,648 @@
     return '업무중';
   }
 
+  /* ── 상주 AI 동료 ───────────────────────── */
+
+  var AI_KEY = 'pickleoffice.aiCoworkers';
+  var AI_SPEED = 76;
+
+  var AI_ZONES = {
+    work:    { label: '워크스테이션', status: 'work' },
+    meeting: { label: '회의실', status: 'meeting' },
+    cafe:    { label: '탕비실·라운지', status: 'break' },
+    focus:   { label: '포커스 팟', status: 'work' }
+  };
+
+  var AI_PRESETS = [
+    { id: 'blue',   name: '블루',    body: '#5E8FD6', accent: '#2C4E86', glow: '#EAF2FF' },
+    { id: 'teal',   name: '틸',      body: '#46B49A', accent: '#1F6E62', glow: '#E7FFF8' },
+    { id: 'violet', name: '바이올렛', body: '#C08BE0', accent: '#6C3FA8', glow: '#F6ECFF' },
+    { id: 'amber',  name: '앰버',    body: '#E3A94A', accent: '#9A5E1E', glow: '#FFF5DF' },
+    { id: 'coral',  name: '코랄',    body: '#EA7C6B', accent: '#A83E38', glow: '#FFEDE9' },
+    { id: 'slate',  name: '슬레이트', body: '#8C99A8', accent: '#46525F', glow: '#F1F4F7' }
+  ];
+
+  var AI_DEFAULTS = [
+    { id: 'ai-minji',   name: '민지', role: '기획·일정',   zone: 'work',
+      body: '#5E8FD6', accent: '#2C4E86', glow: '#EAF2FF', spawn: [156, 296], status: 'work' },
+    { id: 'ai-dohyun',  name: '도현', role: '개발·리서치', zone: 'focus',
+      body: '#46B49A', accent: '#1F6E62', glow: '#E7FFF8', spawn: [880, 304], status: 'meeting' },
+    { id: 'ai-seoyeon', name: '서연', role: '총무·운영',   zone: 'cafe',
+      body: '#C08BE0', accent: '#6C3FA8', glow: '#F6ECFF', spawn: [180, 566], status: 'break' }
+  ];
+
+  var AI_SPOTS = {
+    work:     [[156, 296], [324, 274], [420, 300], [120, 268], [390, 300], [520, 300]],
+    meeting:  [[880, 304], [1000, 304], [780, 304], [1120, 200], [700, 250], [1060, 320]],
+    cafe:     [[180, 566], [260, 600], [300, 700], [430, 700], [520, 600], [150, 660]],
+    focus:    [[700, 640], [780, 648], [900, 648], [1020, 640], [1060, 620], [700, 430], [1120, 430]],
+    corridor: [[240, 375], [600, 375], [960, 375], [1110, 375]]
+  };
+
+  var AI_CENTER = { work: [318, 270], meeting: [942, 310], cafe: [300, 620], focus: [860, 640], corridor: [600, 375] };
+
+  var AI_LINES = {
+    plan: [
+      '네, 일정표 확인해서 정리해 둘게요.',
+      '그 건 이번 주 안으로 마무리되게 챙겨 볼게요.',
+      '회의록은 제가 정리해서 공유드릴게요.',
+      '자료는 공유 폴더에 모아 둘게요. 확인해 보세요.',
+      '우선순위부터 정리해서 알려드릴게요.'
+    ],
+    dev: [
+      '재현 경로 먼저 정리해 볼게요. 확인되면 공유드릴게요.',
+      '로그 확인해 보고 원인 정리해서 알려드릴게요.',
+      '배포 전에 테스트 한 번 더 돌려 볼게요.',
+      '관련 자료 조사해서 세 줄로 요약해 둘게요.',
+      '코드 쪽은 제가 맡아서 볼게요.'
+    ],
+    ops: [
+      '비품은 제가 챙겨 둘게요. 필요하면 말씀해 주세요.',
+      '택배는 제가 받아서 정리해 둘게요.',
+      '이번 달 정산은 금요일까지 마무리하겠습니다.',
+      '커피 내려 둘게요. 잠깐 쉬다 오세요.',
+      '공용 공간은 제가 한번 정리하고 올게요.'
+    ],
+    creative: [
+      '시안 두 개로 정리해서 보여드릴게요.',
+      '톤은 이 방향으로 잡아 보면 좋을 것 같아요.',
+      '문구는 짧게 다듬어서 올려 둘게요.',
+      '레퍼런스 모아서 공유드릴게요.'
+    ],
+    general: [
+      '네, 그 건 제가 확인해서 알려드릴게요.',
+      '확인해 보고 정리해 둘게요.',
+      '맡아서 진행해 볼게요. 진행 상황은 공유드릴게요.'
+    ]
+  };
+
+  var AI_GREET = [
+    '네, 안녕하세요. 오늘도 잘 부탁드립니다.',
+    '어서 오세요. 필요한 일 있으면 불러 주세요.',
+    '안녕하세요. 자리 비우지 않고 있을게요.',
+    '반갑습니다. 오늘 업무도 같이 챙겨 볼게요.'
+  ];
+
+  var AI_THANKS = [
+    '수고 많으셨어요. 마무리도 도와드릴게요.',
+    '제가 정리해 둘게요. 고생하셨습니다.',
+    '천천히 하셔도 돼요. 나머지는 제가 볼게요.'
+  ];
+
+  var AI_INTENTS = [
+    { re: /커피|라떼|아메리카노/, line: '커피는 제가 내려 둘게요. 잠깐 쉬다 오세요.' },
+    { re: /비품|구매|주문|소모품/, line: '비품 목록 확인해서 필요한 만큼 챙겨 둘게요.' },
+    { re: /택배|배송|수령/, line: '택배는 제가 받아서 자리에 정리해 둘게요.' },
+    { re: /정산|예산|회계|영수증/, line: '정산 자료 확인해서 금요일까지 마무리할게요.' },
+    { re: /일정|스케줄|캘린더|회의실/, line: '일정표 확인해서 겹치는 부분 정리해 둘게요.' },
+    { re: /회의록|보고서|자료|문서/, line: '자료 정리해서 공유 폴더에 올려 둘게요.' },
+    { re: /버그|에러|오류|장애/, line: '재현 경로 확인하고 원인 정리해서 알려드릴게요.' },
+    { re: /배포|릴리스|테스트/, line: '배포 전에 테스트 한 번 더 돌려 볼게요.' },
+    { re: /디자인|시안|문구|카피/, line: '시안 두 개로 정리해서 보여드릴게요.' },
+    { re: /마케팅|광고|캠페인|SNS|sns/, line: '캠페인 흐름 정리해서 공유드릴게요.' },
+    { re: /점심|식사|메뉴/, line: '점심은 근처 후보로 두 곳 정리해 둘게요.' }
+  ];
+
+  var AI_WORDS = {
+    plan: ['일정', '회의', '보고', '자료', '마감', '계획', '주간', '기획', '회의실', '데드라인'],
+    dev: ['개발', '버그', '배포', '서버', '테스트', '코드', '로그', '에러', '오류', '리서치', '조사', '기술', 'API', 'api', '데이터'],
+    ops: ['비품', '커피', '택배', '정산', '구매', '예산', '회계', '배송', '총무', '운영', '주문', '청소', '인사'],
+    creative: ['디자인', '마케팅', '광고', '문구', '브랜드', '콘텐츠', '카피', '시안', '이미지', 'SNS', 'sns', '캠페인'],
+    general: []
+  };
+
+  var aiTeam = [];
+  var aiPreset = AI_PRESETS[3];
+  var lastAIReplyAt = 0;
+  var lastAITaskAck = 0;
+  var aiGreeted = false;
+
+  function perfNow() { return performance.now() / 1000; }
+
+  function aiDefaultFor(id) {
+    for (var i = 0; i < AI_DEFAULTS.length; i++) if (AI_DEFAULTS[i].id === id) return AI_DEFAULTS[i];
+    return null;
+  }
+
+  function normalizeAI(cfg) {
+    if (!cfg || typeof cfg !== 'object') return null;
+    var name = cleanText(cfg.name, 10);
+    if (!name) return null;
+    var zone = AI_ZONES[cfg.zone] ? cfg.zone : 'work';
+    return {
+      id: String(cfg.id || ('ai' + nowMs().toString(36) + Math.random().toString(36).slice(2, 5))),
+      name: name,
+      role: cleanText(cfg.role, 16) || '동료',
+      zone: zone,
+      body: validColor(cfg.body, '#5E8FD6'),
+      accent: validColor(cfg.accent, '#2C4E86'),
+      glow: validColor(cfg.glow, '#FFFFFF'),
+      enabled: cfg.enabled !== false
+    };
+  }
+
+  function saveAITeam() {
+    Store.set(AI_KEY, JSON.stringify(aiTeam));
+  }
+
+  function loadAITeam() {
+    var saved = Store.json(AI_KEY, null);
+    if (!Array.isArray(saved)) {
+      aiTeam = [];
+      AI_DEFAULTS.forEach(function (d) {
+        var cfg = normalizeAI(d);
+        if (cfg) aiTeam.push(cfg);
+      });
+      saveAITeam();
+      return;
+    }
+    aiTeam = [];
+    saved.forEach(function (cfg) {
+      var n = normalizeAI(cfg);
+      if (n) aiTeam.push(n);
+    });
+  }
+
+  function aiPickSpot(zone, ch) {
+    var list = AI_SPOTS[zone] || AI_SPOTS.work;
+    var shuffled = list.slice().sort(function () { return Math.random() - 0.5; }).slice(0, 3);
+    for (var i = 0; i < shuffled.length; i++) {
+      var p = freePoint(shuffled[i][0] + (Math.random() - 0.5) * 20, shuffled[i][1] + (Math.random() - 0.5) * 16);
+      if (!p) continue;
+      var clash = false;
+      chars.forEach(function (c) {
+        if (c === ch) return;
+        if (Math.hypot(c.x - p.x, c.y - p.y) < 42) clash = true;
+        if (c.target && Math.hypot(c.target.x - p.x, c.target.y - p.y) < 34) clash = true;
+      });
+      if (!clash) return p;
+    }
+    var center = AI_CENTER[zone] || AI_CENTER.work;
+    return freePoint(center[0], center[1]);
+  }
+
+  function attachAI(cfg) {
+    var existing = chars.get(cfg.id);
+    if (existing) {
+      existing.name = cfg.name;
+      existing.role = cfg.role;
+      existing.body = cfg.body;
+      existing.accent = cfg.accent;
+      existing.glow = cfg.glow;
+      existing.homeZone = cfg.zone;
+      return existing;
+    }
+    var def = aiDefaultFor(cfg.id);
+    var spawn = def && def.spawn ? freePoint(def.spawn[0], def.spawn[1]) : null;
+    if (!spawn) spawn = aiPickSpot(cfg.zone, null);
+    if (!spawn) spawn = { x: 600, y: 375 };
+    var ch = {
+      id: cfg.id,
+      name: cfg.name,
+      role: cfg.role,
+      isAI: true,
+      owner: '',
+      body: cfg.body,
+      accent: cfg.accent,
+      glow: cfg.glow,
+      status: (def && def.status) || (AI_ZONES[cfg.zone] ? AI_ZONES[cfg.zone].status : 'work'),
+      x: spawn.x,
+      y: spawn.y,
+      dx: spawn.x,
+      dy: spawn.y,
+      facing: Math.random() < 0.5 ? -1 : 1,
+      moving: false,
+      phase: Math.random() * 6.28,
+      blink: 0,
+      nextBlink: 2 + Math.random() * 3,
+      bubble: null,
+      path: [],
+      target: null,
+      stuck: 0,
+      lastSeen: Infinity,
+      homeZone: cfg.zone,
+      destZone: null,
+      nextThink: perfNow() + 1.6 + Math.random() * 3.4
+    };
+    chars.set(ch.id, ch);
+    return ch;
+  }
+
+  function syncAITeam() {
+    aiTeam.forEach(function (cfg) {
+      if (cfg.enabled) attachAI(cfg);
+      else if (chars.has(cfg.id)) chars.delete(cfg.id);
+    });
+    Array.from(chars.values()).forEach(function (c) {
+      if (!c.isAI) return;
+      var keep = false;
+      for (var i = 0; i < aiTeam.length; i++) {
+        if (aiTeam[i].id === c.id && aiTeam[i].enabled) keep = true;
+      }
+      if (!keep) chars.delete(c.id);
+    });
+    renderRoster();
+  }
+
+  function pickStatusForZone(zone) {
+    var pool = {
+      work: ['work', 'work', 'work', 'break'],
+      meeting: ['meeting', 'meeting', 'meeting', 'work'],
+      cafe: ['break', 'break', 'out', 'break'],
+      focus: ['work', 'work', 'meeting', 'work']
+    }[zone] || ['work'];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function zoneAt(x, y) {
+    var keys = { work: 'work', meeting: 'meeting', pantry: 'cafe', focus: 'focus' };
+    var order = ['work', 'meeting', 'pantry', 'focus'];
+    for (var i = 0; i < order.length; i++) {
+      var r = A.ROOMS[order[i]];
+      if (!r) continue;
+      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return keys[order[i]];
+    }
+    return 'corridor';
+  }
+
+  function aiArrive(ch, now) {
+    var zone = ch.destZone || ch.homeZone;
+    ch.status = pickStatusForZone(zone);
+    ch.nextThink = now + 6 + Math.random() * 12;
+    ch.destZone = null;
+    renderRoster();
+  }
+
+  function aiThink(ch, now) {
+    var r = Math.random();
+    if (r < 0.16) {
+      var here = zoneAt(ch.x, ch.y);
+      ch.status = pickStatusForZone(here === 'corridor' ? ch.homeZone : here);
+      renderRoster();
+      ch.nextThink = now + 5 + Math.random() * 9;
+      return;
+    }
+    var zone;
+    if (r < 0.58) {
+      zone = ch.homeZone;
+    } else if (r < 0.70) {
+      zone = 'corridor';
+    } else {
+      var others = ['work', 'meeting', 'cafe', 'focus'].filter(function (z) { return z !== ch.homeZone; });
+      zone = others[Math.floor(Math.random() * others.length)] || 'corridor';
+    }
+    var spot = aiPickSpot(zone, ch);
+    if (!spot) {
+      ch.nextThink = now + 3;
+      return;
+    }
+    var path = null;
+    try { path = findPath(ch.x, ch.y, spot.x, spot.y); } catch (e) { path = null; }
+    ch.path = path && path.length ? path : [spot];
+    ch.target = ch.path[0];
+    ch.destZone = zone === 'corridor' ? ch.homeZone : zone;
+    ch.stuck = 0;
+    ch.moving = true;
+  }
+
+  function updateAI(now, dt) {
+    chars.forEach(function (ch) {
+      if (!ch.isAI) return;
+      if (ch.target) {
+        var dx = ch.target.x - ch.x;
+        var dy = ch.target.y - ch.y;
+        var dist = Math.hypot(dx, dy);
+        if (dist < 4) {
+          ch.path.shift();
+          ch.target = ch.path.length ? ch.path[0] : null;
+          if (!ch.target) aiArrive(ch, now);
+        } else {
+          var step = Math.min(dist, AI_SPEED * dt);
+          var bx = ch.x, by = ch.y;
+          tryStep(ch, (dx / dist) * step, (dy / dist) * step);
+          var moved = Math.hypot(ch.x - bx, ch.y - by);
+          if (moved < step * 0.25) {
+            ch.stuck += dt;
+            if (ch.stuck > 0.5) {
+              ch.target = null;
+              ch.path = [];
+              ch.stuck = 0;
+              ch.nextThink = now + 1.2 + Math.random() * 2;
+            }
+          } else {
+            ch.stuck = 0;
+          }
+          if (Math.abs(dx) > 2) ch.facing = dx < 0 ? -1 : 1;
+          ch.moving = true;
+        }
+      } else {
+        ch.moving = false;
+      }
+      ch.dx = ch.x;
+      ch.dy = ch.y;
+      if (!ch.target && now >= ch.nextThink) aiThink(ch, now);
+    });
+  }
+
+  function aiRoleKind(ch) {
+    var r = (ch.role || '') + ' ' + (ch.name || '');
+    if (/총무|운영|재무|회계|인사|구매|비품|경리/.test(r)) return 'ops';
+    if (/개발|리서치|연구|기술|엔지니어|데이터|IT/.test(r)) return 'dev';
+    if (/마케팅|디자인|영업|광고|브랜드|콘텐츠|편집|SNS/.test(r)) return 'creative';
+    if (/기획|일정|비서|스케줄|PM|피엠/.test(r)) return 'plan';
+    return 'general';
+  }
+
+  function pickLine(arr, fallback) {
+    if (!arr || !arr.length) return fallback || '네, 확인해서 알려드릴게요.';
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
+
+  function aiReplyLine(ch, text) {
+    if (/고마|감사|수고/.test(text)) return pickLine(AI_THANKS);
+    if (/안녕|반가|하이|좋은 아침/.test(text)) return pickLine(AI_GREET);
+    for (var i = 0; i < AI_INTENTS.length; i++) {
+      if (AI_INTENTS[i].re.test(text)) return AI_INTENTS[i].line;
+    }
+    var kind = aiRoleKind(ch);
+    var line = pickLine(AI_LINES[kind]);
+    if (kind === 'general' && ch.role) line = ch.role + ' 쪽은 제가 보고 있어요. ' + line;
+    return line;
+  }
+
+  function aiSay(ch, text, delay) {
+    var go = function () {
+      if (!chars.has(ch.id)) return;
+      var t = cleanText(text, 140);
+      if (!t) return;
+      addMessage({
+        id: 'aim' + nowMs() + Math.random().toString(16).slice(2, 6),
+        from: ch.id,
+        name: ch.name,
+        body: ch.body,
+        text: t,
+        at: nowMs(),
+        ai: true
+      });
+    };
+    if (delay) setTimeout(go, delay);
+    else go();
+  }
+
+  function aiNearest(ais) {
+    var best = ais[0];
+    var bd = Infinity;
+    ais.forEach(function (c) {
+      var d = Math.hypot(c.x - me.x, c.y - me.y);
+      if (d < bd) { bd = d; best = c; }
+    });
+    return best;
+  }
+
+  function aiScore(ch, text) {
+    var kind = aiRoleKind(ch);
+    var words = AI_WORDS[kind] || [];
+    var s = 0;
+    for (var i = 0; i < words.length; i++) if (text.indexOf(words[i]) !== -1) s += 2;
+    var zone = AI_ZONES[ch.homeZone];
+    if (zone && text.indexOf(zone.label) !== -1) s += 2;
+    if (Math.hypot(ch.x - me.x, ch.y - me.y) < 240) s += 1;
+    return s;
+  }
+
+  function handleAIChat(text) {
+    var t = cleanText(text, 140);
+    if (!t) return;
+    var ais = [];
+    chars.forEach(function (c) { if (c.isAI) ais.push(c); });
+    if (!ais.length) return;
+
+    var now = perfNow();
+    var mentioned = null;
+    for (var i = 0; i < ais.length; i++) {
+      if (t.indexOf(ais[i].name) !== -1) { mentioned = ais[i]; break; }
+    }
+    var greet = /안녕|반가|하이|좋은 아침|ㅎㅇ/.test(t);
+    var thanks = /고마|감사|수고/.test(t);
+    var question = /[?？]|어때|어떻게|뭐|무엇|누가|언제|어디|가능|확인|정리|진행|도와|부탁|알려|있어|있나|될까|할까|줄래|해줘|해 줘|줘|공유|체크|검토|준비/.test(t);
+
+    if (mentioned) {
+      mentioned.facing = mentioned.x < me.x ? 1 : -1;
+      aiSay(mentioned, aiReplyLine(mentioned, t), 650 + Math.random() * 700);
+      lastAIReplyAt = now;
+      return;
+    }
+    if (thanks || greet) {
+      if (now - lastAIReplyAt < 3) return;
+      var hello = aiNearest(ais);
+      hello.facing = hello.x < me.x ? 1 : -1;
+      aiSay(hello, pickLine(thanks ? AI_THANKS : AI_GREET), 700 + Math.random() * 700);
+      lastAIReplyAt = now;
+      return;
+    }
+    if (!question) {
+      if (Math.random() < 0.18 && now - lastAIReplyAt > 12) {
+        var ack = aiNearest(ais);
+        ack.facing = ack.x < me.x ? 1 : -1;
+        aiSay(ack, '네, 확인했습니다.', 900 + Math.random() * 900);
+        lastAIReplyAt = now;
+      }
+      return;
+    }
+    if (now - lastAIReplyAt < 1.2) return;
+
+    var best = null;
+    var bestScore = -1;
+    ais.forEach(function (c) {
+      var s = aiScore(c, t);
+      if (s > bestScore) { bestScore = s; best = c; }
+    });
+    if (!best) best = aiNearest(ais);
+    if (Math.random() < 0.9) {
+      best.facing = best.x < me.x ? 1 : -1;
+      aiSay(best, aiReplyLine(best, t), 1000 + Math.random() * 1200);
+      lastAIReplyAt = now;
+    }
+  }
+
+  function aiAckTask(text) {
+    var now = perfNow();
+    if (now - lastAITaskAck < 24) return;
+    var ais = [];
+    chars.forEach(function (c) { if (c.isAI) ais.push(c); });
+    if (!ais.length) return;
+    if (Math.random() > 0.62) return;
+    lastAITaskAck = now;
+
+    var best = null;
+    var bestScore = -1;
+    ais.forEach(function (c) {
+      var s = aiScore(c, text);
+      if (s > bestScore) { bestScore = s; best = c; }
+    });
+    if (!best) best = aiNearest(ais);
+    var verb = {
+      plan: '일정에 넣어 둘게요',
+      dev: '관련해서 확인해 볼게요',
+      ops: '제가 챙겨 둘게요',
+      creative: '참고해서 정리해 둘게요',
+      general: '확인해 둘게요'
+    }[aiRoleKind(best)] || '확인해 둘게요';
+    aiSay(best, '‘' + cleanText(text, 20) + '’ 메모 확인했어요. ' + verb + '.', 900 + Math.random() * 700);
+  }
+
+  function scheduleAIGreeting(delay) {
+    try { if (sessionStorage.getItem('pickleoffice.aiGreeted')) return; } catch (e) { /* noop */ }
+    setTimeout(function () {
+      if (aiGreeted) return;
+      var ais = [];
+      chars.forEach(function (c) { if (c.isAI) ais.push(c); });
+      if (!ais.length) return;
+      aiGreeted = true;
+      try { sessionStorage.setItem('pickleoffice.aiGreeted', '1'); } catch (e) { /* noop */ }
+      var ch = ais[0];
+      aiSay(ch, '안녕하세요, ' + ch.name + '입니다. 필요한 일은 이름을 불러 주세요.', 0);
+    }, delay || 2600);
+  }
+
+  function renderTeamList() {
+    var listEl = $('#teamList');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    var active = aiTeam.filter(function (a) { return a.enabled; }).length;
+    var countEl = $('#teamCount');
+    if (countEl) countEl.textContent = active + '명 활동 중';
+
+    if (!aiTeam.length) {
+      var p = document.createElement('li');
+      p.className = 'team-empty';
+      p.textContent = '아직 AI 동료가 없습니다. 아래에서 한 명 추가해 보세요.';
+      listEl.appendChild(p);
+      return;
+    }
+
+    aiTeam.forEach(function (cfg) {
+      var li = document.createElement('li');
+      li.className = 'team-item' + (cfg.enabled ? '' : ' is-off');
+
+      var av = document.createElement('span');
+      av.className = 'roster-avatar';
+      av.style.background = avatarGradient(cfg.body);
+
+      var meta = document.createElement('div');
+      meta.className = 'team-meta';
+      var strong = document.createElement('strong');
+      strong.textContent = cfg.name;
+      var badge = document.createElement('span');
+      badge.className = 'ai-badge';
+      badge.textContent = 'AI';
+      strong.appendChild(badge);
+      var sub = document.createElement('span');
+      sub.textContent = cfg.role + ' · ' + (AI_ZONES[cfg.zone] ? AI_ZONES[cfg.zone].label : '사무실');
+      meta.appendChild(strong);
+      meta.appendChild(sub);
+
+      var sw = document.createElement('button');
+      sw.type = 'button';
+      sw.className = 'team-switch';
+      sw.setAttribute('role', 'switch');
+      sw.setAttribute('aria-checked', cfg.enabled ? 'true' : 'false');
+      sw.title = cfg.enabled ? '자리 비우기' : '다시 부르기';
+      sw.setAttribute('aria-label', cfg.name + (cfg.enabled ? ' 자리 비우기' : ' 다시 부르기'));
+      sw.addEventListener('click', function () {
+        cfg.enabled = !cfg.enabled;
+        saveAITeam();
+        syncAITeam();
+        renderTeamList();
+        showMini(cfg.name + (cfg.enabled ? ' 님이 자리로 돌아왔습니다' : ' 님이 자리를 비웠습니다'));
+      });
+
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'team-del';
+      del.textContent = '✕';
+      del.title = '팀에서 내보내기';
+      del.setAttribute('aria-label', cfg.name + ' 팀에서 내보내기');
+      del.addEventListener('click', function () {
+        aiTeam = aiTeam.filter(function (a) { return a.id !== cfg.id; });
+        saveAITeam();
+        syncAITeam();
+        renderTeamList();
+        showMini(cfg.name + ' 님을 팀에서 내보냈습니다');
+      });
+
+      li.appendChild(av);
+      li.appendChild(meta);
+      li.appendChild(sw);
+      li.appendChild(del);
+      listEl.appendChild(li);
+    });
+  }
+
+  function buildAIPresets() {
+    var row = $('#aiPresetRow');
+    if (!row) return;
+    row.innerHTML = '';
+    AI_PRESETS.forEach(function (p) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'preset' + (aiPreset.id === p.id ? ' is-active' : '');
+      var sw = document.createElement('span');
+      sw.className = 'swatch';
+      sw.style.background = p.body;
+      sw.style.setProperty('--acc', p.accent);
+      b.appendChild(sw);
+      b.appendChild(document.createTextNode(p.name));
+      b.addEventListener('click', function () {
+        aiPreset = p;
+        Array.prototype.forEach.call(row.children, function (el) { el.classList.remove('is-active'); });
+        b.classList.add('is-active');
+      });
+      row.appendChild(b);
+    });
+  }
+
+  function openTeam() {
+    renderTeamList();
+    buildAIPresets();
+    teamDlg.showModal();
+  }
+
+  function addAIFromForm() {
+    var name = cleanText($('#aiName').value, 10);
+    if (!name) {
+      showMini('이름을 입력해 주세요');
+      $('#aiName').focus();
+      return;
+    }
+    if (aiTeam.some(function (a) { return a.name === name; })) {
+      showMini('같은 이름의 동료가 이미 있습니다');
+      $('#aiName').focus();
+      return;
+    }
+    var role = cleanText($('#aiRole').value, 16) || '동료';
+    var zone = AI_ZONES[$('#aiZone').value] ? $('#aiZone').value : 'work';
+    var cfg = normalizeAI({
+      name: name,
+      role: role,
+      zone: zone,
+      body: aiPreset.body,
+      accent: aiPreset.accent,
+      glow: aiPreset.glow,
+      enabled: true
+    });
+    if (!cfg) return;
+    aiTeam.push(cfg);
+    saveAITeam();
+    var ch = attachAI(cfg);
+    renderRoster();
+    renderTeamList();
+    $('#aiName').value = '';
+    $('#aiRole').value = '';
+    showToast(name + ' 님을 팀에 추가했습니다');
+    if (ch) aiSay(ch, '안녕하세요, ' + name + '입니다. ' + role + ' 쪽을 맡을게요.', 500);
+  }
+
   /* ── 화면 요소 ──────────────────────────── */
 
   var canvas = $('#office');
@@ -166,6 +808,8 @@
   var taskCount = $('#taskCount');
   var toastEl = $('#toast');
   var hintEl = $('#hint');
+  var teamBtn = $('#teamBtn');
+  var teamDlg = $('#teamDlg');
 
   $('.room-hash').textContent = '#';
   $('#roomLabel').textContent = room;
@@ -220,7 +864,7 @@
 
   function rosterSignature() {
     return Array.from(chars.values()).map(function (c) {
-      return c.id + '|' + c.name + '|' + c.owner + '|' + c.status + '|' + c.body;
+      return c.id + '|' + c.name + '|' + c.owner + '|' + c.status + '|' + c.body + '|' + (c.isAI ? '1' : '0') + '|' + (c.role || '');
     }).join('~');
   }
 
@@ -239,7 +883,7 @@
 
     list.forEach(function (c) {
       var li = document.createElement('li');
-      li.className = 'roster-item';
+      li.className = 'roster-item' + (c.isAI ? ' is-ai' : '');
       var av = document.createElement('span');
       av.className = 'roster-avatar';
       av.style.background = avatarGradient(c.body);
@@ -247,8 +891,16 @@
       meta.className = 'roster-meta';
       var nm = document.createElement('strong');
       nm.textContent = c.name + (c.id === myId ? ' (나)' : '');
+      if (c.isAI) {
+        var badge = document.createElement('span');
+        badge.className = 'ai-badge';
+        badge.textContent = 'AI';
+        nm.appendChild(badge);
+      }
       var ow = document.createElement('span');
-      ow.textContent = c.owner ? c.owner + '님의 비서' : '비서';
+      ow.textContent = c.isAI
+        ? ((c.role ? c.role + ' · ' : '') + 'AI 동료')
+        : (c.owner ? c.owner + '님의 비서' : '비서');
       meta.appendChild(nm);
       meta.appendChild(ow);
       var st = document.createElement('span');
@@ -270,6 +922,12 @@
       dot.style.background = A.STATUS_COLOR[c.status] || '#2FBF94';
       var nm2 = document.createElement('span');
       nm2.textContent = c.name + (c.id === myId ? ' (나)' : '');
+      if (c.isAI) {
+        var b2 = document.createElement('span');
+        b2.className = 'ai-badge';
+        b2.textContent = 'AI';
+        nm2.appendChild(b2);
+      }
       chip.appendChild(av2);
       chip.appendChild(nm2);
       chip.appendChild(dot);
@@ -304,7 +962,7 @@
     if (!m.system) saveChatLocal();
     if (m.from === myId) return;
     var c = chars.get(m.from);
-    if (c) {
+    if (c && !m.hist) {
       c.bubble = { text: m.text, until: performance.now() / 1000 + 7 };
     }
   }
@@ -362,6 +1020,7 @@
     me.bubble = { text: t, until: performance.now() / 1000 + 7 };
     if (cloud && cloud.url) cloud.saveMessages(messages.filter(function (m) { return !m.system; }));
     saveChatLocal();
+    handleAIChat(t);
   }
 
   /* ── 업무 메모 ──────────────────────────── */
@@ -1017,11 +1676,13 @@
 
     sendState(false);
 
+    updateAI(now, dt);
+
     var t = nowMs();
     if (t - lastPrune > 1000) {
       lastPrune = t;
       chars.forEach(function (c) {
-        if (c.id !== myId && t - c.lastSeen > 16000) {
+        if (c.id !== myId && !c.isAI && t - c.lastSeen > 16000) {
           // 16초 동안 소식이 없으면 자리 비움으로 정리
           removeChar(c.id);
         }
@@ -1181,6 +1842,7 @@
     b.addEventListener('click', function () {
       if (settingsDlg.open) settingsDlg.close();
       if (welcomeDlg.open) welcomeDlg.close();
+      if (teamDlg.open) teamDlg.close();
     });
   });
 
@@ -1212,6 +1874,24 @@
   $('#copyInviteBtn').addEventListener('click', copyInvite);
   $('#settingsBtn').addEventListener('click', openSettings);
   $('#roomChip').addEventListener('click', openSettings);
+  teamBtn.addEventListener('click', openTeam);
+  $('#aiAddBtn').addEventListener('click', addAIFromForm);
+  $('#teamReset').addEventListener('click', function () {
+    var added = 0;
+    AI_DEFAULTS.forEach(function (d) {
+      if (aiTeam.some(function (a) { return a.id === d.id; })) return;
+      var cfg = normalizeAI(d);
+      if (cfg) { aiTeam.push(cfg); added++; }
+    });
+    if (added) {
+      saveAITeam();
+      syncAITeam();
+      renderTeamList();
+      showMini('기본 동료 ' + added + '명을 다시 불렀습니다');
+    } else {
+      showMini('기본 동료가 이미 모두 있습니다');
+    }
+  });
   $('#newRoomBtn').addEventListener('click', function () {
     var id = 'office-' + Math.random().toString(36).slice(2, 7);
     $('#setRoom').value = id;
@@ -1245,6 +1925,7 @@
     sendState(true);
     welcomeDlg.close();
     hideHint();
+    scheduleAIGreeting(1400);
   });
 
   /* ── 입력 ───────────────────────────────── */
@@ -1284,6 +1965,7 @@
     tasks.push({ id: 't' + nowMs() + Math.random().toString(16).slice(2, 5), text: t, done: false, by: me.name });
     tasks = tasks.slice(-40);
     tasksChanged(true);
+    aiAckTask(t);
   });
 
   // 빠른 인사
@@ -1328,7 +2010,7 @@
     if (Array.isArray(saved)) {
       saved.slice(-30).forEach(function (m) {
         if (m && m.id && m.text) {
-          addMessage({ id: m.id, from: m.from || 'past', name: m.name || '피클', body: m.body || '#B9AEC8', text: m.text, at: m.at || nowMs() });
+          addMessage({ id: m.id, from: m.from || 'past', name: m.name || '피클', body: m.body || '#B9AEC8', text: m.text, at: m.at || nowMs(), hist: true });
         }
       });
     }
@@ -1347,6 +2029,8 @@
     if (spawn) { me.x = spawn.x; me.y = spawn.y; me.dx = spawn.x; me.dy = spawn.y; }
     renderMe();
     renderRoster();
+    loadAITeam();
+    syncAITeam();
     loadLocalHistory();
     renderTasks();
     resize();
@@ -1367,6 +2051,7 @@
 
     appendSystem('‘' + room + '’ 방에 입장했습니다. 초대 링크로 동료를 불러보세요.');
     setNetUI('connecting');
+    if (hadProfile) scheduleAIGreeting(3200);
   }
 
   // 디버깅·테스트용 (읽기 전용)
@@ -1374,7 +2059,16 @@
     room: room,
     me: me,
     chars: chars,
-    netStatus: function () { return net ? { live: net.live, broker: net.brokerName } : null; }
+    netStatus: function () { return net ? { live: net.live, broker: net.brokerName } : null; },
+    aiTeam: function () {
+      return aiTeam.map(function (a) { return { id: a.id, name: a.name, role: a.role, zone: a.zone, enabled: a.enabled }; });
+    },
+    aiSay: function (name, text) {
+      var hit = null;
+      chars.forEach(function (c) { if (c.isAI && c.name === name) hit = c; });
+      if (hit) aiSay(hit, text);
+      return !!hit;
+    }
   };
 
   if (document.readyState === 'loading') {

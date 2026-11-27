@@ -1830,9 +1830,18 @@
 
   function drawNameTag(ctx, ch, p, radius, isSelf) {
     ctx.save();
+    var isAI = !!ch.isAI;
     ctx.font = '600 10.5px ' + FONT;
     var label = ch.name + (isSelf ? ' (나)' : '');
-    var w = ctx.measureText(label).width + 22;
+    var nameW = ctx.measureText(label).width;
+    var roleText = (isAI && ch.role) ? ch.role : '';
+    var roleW = 0;
+    if (roleText) {
+      ctx.font = '500 8.5px ' + FONT;
+      roleW = ctx.measureText(roleText).width;
+    }
+    var pillW = isAI ? 17 : 0;
+    var w = 15 + nameW + (roleW ? roleW + 5 : 0) + (isAI ? pillW + 7 : 0) + 9;
     var y = p.y + radius * 0.98 + 6;
 
     ctx.save();
@@ -1855,10 +1864,31 @@
     ctx.arc(p.x - w / 2 + 9, y + 9, 3, 0, Math.PI * 2);
     ctx.fill();
 
+    var tx = p.x - w / 2 + 15;
     ctx.fillStyle = isSelf ? '#F3F5F7' : '#333C46';
+    ctx.font = '600 10.5px ' + FONT;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(label, p.x - w / 2 + 15, y + 9.5);
+    ctx.fillText(label, tx, y + 9.5);
+    tx += nameW;
+
+    if (roleText) {
+      ctx.fillStyle = isSelf ? 'rgba(243, 245, 247, .62)' : '#8A929C';
+      ctx.font = '500 8.5px ' + FONT;
+      ctx.fillText(roleText, tx + 5, y + 9.8);
+      tx += roleW + 5;
+    }
+
+    if (isAI) {
+      ctx.fillStyle = '#2A323C';
+      rr(ctx, tx + 3, y + 3.5, pillW, 11, 2.5);
+      ctx.fill();
+      ctx.fillStyle = '#F4F5F7';
+      ctx.font = '700 7.5px ' + FONT;
+      ctx.textAlign = 'center';
+      ctx.fillText('AI', tx + 3 + pillW / 2, y + 9.4);
+    }
+
     ctx.restore();
   }
 
