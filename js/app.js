@@ -207,7 +207,9 @@
     }
     else if (state === 'connecting') { pill.classList.add('is-connecting'); text.textContent = '연결 중'; }
     else { pill.classList.add('is-local'); text.textContent = '로컬'; pill.title = '이 브라우저 안에서만 동기화'; }
-    if (changed) renderCurrent();
+    var foot = document.querySelector('.map-foot span:last-child');
+    if (foot) foot.textContent = (state === 'live') ? '실시간 동기화' : '이 브라우저에서';
+    if (changed || state === 'live') renderCurrent();
   }
 
   function onNetMessage(msg) {
