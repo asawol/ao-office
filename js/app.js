@@ -330,7 +330,10 @@
         '</div>' +
         '<section class="card map-card">' +
           '<div class="map" id="map">' +
-            '<img src="assets/office-diorama.png" alt="크림 본부 3D 아이소메트릭 오피스" decoding="async" />' +
+            '<picture>' +
+              '<source srcset="assets/office-diorama.webp" type="image/webp" />' +
+              '<img src="assets/office-diorama.jpg" srcset="assets/office-diorama@700.jpg 700w, assets/office-diorama.jpg 1402w" sizes="(min-width: 900px) 700px, 100vw" width="1402" height="1122" alt="크림 본부 3D 아이소메트릭 오피스" fetchpriority="high" decoding="async" />' +
+            '</picture>' +
             pinsHTML() +
             '<div class="bubble" id="mapBubble"></div>' +
           '</div>' +

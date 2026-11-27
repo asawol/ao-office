@@ -209,6 +209,7 @@ button.chip{transition:background .16s,color .16s,border-color .16s}
   background:#f2f3f5;
   isolation:isolate;
 }
+.map picture{display:block}
 .map img{
   width:100%;height:auto;
   display:block;
