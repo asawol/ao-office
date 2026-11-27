@@ -460,6 +460,62 @@
     ctx.restore();
   }
 
+  /* 업무 데스크존 소품 */
+  function drawWorkCorner(ctx) {
+    // 책장
+    ctx.save();
+    ctx.fillStyle = 'rgba(110,80,50,.15)';
+    rr(ctx, 96, 302, 168, 44, 9);
+    ctx.fill();
+    ctx.fillStyle = '#F7E7D1';
+    rr(ctx, 92, 296, 168, 44, 9);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(198,156,112,.5)';
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+    var books = ['#E8469B', '#7A4BE0', '#2FBF94', '#F2A227', '#5C8CF0', '#F2789F', '#8FD9BE', '#C9B8F2'];
+    for (var i = 0; i < 8; i++) {
+      ctx.fillStyle = books[i];
+      rr(ctx, 102 + i * 12, 310 + (i % 3) * 2, 9, 22 - (i % 3) * 2, 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(255,255,255,.5)';
+    rr(ctx, 210, 306, 40, 24, 4);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(200,170,135,.7)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+    addRect(92, 296, 168, 44, 'bookshelf');
+
+    drawPlant(ctx, 300, 320, 0.85, '#6BC99A');
+    addCircle(300, 320, 10, 'plant');
+
+    // 공용 라운드 테이블
+    ctx.save();
+    ctx.fillStyle = 'rgba(110,80,50,.13)';
+    ctx.beginPath();
+    ctx.ellipse(440, 322, 40, 24, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#F6E3C8';
+    ctx.beginPath();
+    ctx.ellipse(438, 316, 38, 22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(190,150,110,.5)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(430, 312, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#E8469B';
+    ctx.beginPath();
+    ctx.arc(448, 320, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    addRect(410, 300, 60, 40, 'lounge-table');
+  }
+
   /* 회의 라운지 */
   var TABLE = { x: 900, y: 236, r: 72 };
   addCircle(TABLE.x, TABLE.y, TABLE.r + 4, 'table');
@@ -583,10 +639,10 @@
     // 뒷 벤치(수납장)
     ctx.save();
     ctx.fillStyle = 'rgba(110,80,50,.15)';
-    rr(ctx, 84, 420, 268, 48, 10);
+    rr(ctx, 84, 446, 268, 48, 10);
     ctx.fill();
     ctx.fillStyle = '#FBEFDD';
-    rr(ctx, 80, 414, 268, 48, 10);
+    rr(ctx, 80, 440, 268, 48, 10);
     ctx.fill();
     ctx.strokeStyle = 'rgba(198,156,112,.45)';
     ctx.lineWidth = 1.2;
@@ -595,15 +651,15 @@
     for (var i = 0; i < 6; i++) {
       ctx.fillStyle = ['#E8469B', '#7A4BE0', '#2FBF94', '#F2A227', '#5C8CF0', '#F2789F'][i];
       ctx.beginPath();
-      ctx.arc(106 + i * 38, 438, 8, 0, Math.PI * 2);
+      ctx.arc(106 + i * 38, 464, 8, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,.8)';
       ctx.beginPath();
-      ctx.arc(106 + i * 38, 438, 4.6, 0, Math.PI * 2);
+      ctx.arc(106 + i * 38, 464, 4.6, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
-    addRect(80, 414, 268, 48, 'shelf');
+    addRect(80, 440, 268, 48, 'shelf');
 
     // 메뉴판
     ctx.save();
@@ -891,6 +947,7 @@
     drawFloor(ctx);
     drawWalls(ctx);
     DESKS.forEach(function (d) { drawDesk(ctx, d, t); });
+    drawWorkCorner(ctx);
     drawMeeting(ctx, t);
     drawCafe(ctx, t);
     drawFocus(ctx, t);

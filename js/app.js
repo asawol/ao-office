@@ -1163,7 +1163,7 @@
 
   function start() {
     var hadProfile = loadProfile();
-    var spots = [[620, 376], [300, 376], [900, 376], [300, 540], [900, 540], [1120, 640], [130, 300]];
+    var spots = [[620, 376], [300, 376], [900, 376], [330, 700], [900, 640], [1120, 640], [130, 300]];
     var pick = spots[Math.floor(Math.random() * spots.length)];
     var spawn = freePoint(pick[0] + (Math.random() - 0.5) * 60, pick[1] + (Math.random() - 0.5) * 40);
     if (spawn) { me.x = spawn.x; me.y = spawn.y; me.dx = spawn.x; me.dy = spawn.y; }
