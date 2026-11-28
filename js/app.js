@@ -191,6 +191,12 @@
   function activeParts() { return S.parts.filter(function (p) { return p.on; }); }
   function partById(id) { return S.parts.filter(function (p) { return p.id === id; })[0] || null; }
   function initial(name) { return (name || '?').trim().slice(0, 1); }
+  function withParticle(name) {
+    var t = String(name || '').trim();
+    var c = t.charCodeAt(t.length - 1);
+    if (c >= 0xAC00 && c <= 0xD7A3) return ((c - 0xAC00) % 28) ? '과' : '와';
+    return '과';
+  }
 
   var remotes = {};
   var repliedTo = {};
@@ -530,7 +536,7 @@
       '<div class="sheet-line"><b>지금</b> · ' + esc(on ? p.status : '잠시 대기 중이에요') + '</div>' +
       '<div class="sheet-line"><b>최근 한마디</b> · "' + esc(p.line) + '"</div>' +
       '<div class="sheet-actions">' +
-        '<button type="button" class="btn primary" data-act="talk-part" data-part="' + p.id + '">' + esc(p.name) + '와 대화</button>' +
+        '<button type="button" class="btn primary" data-act="talk-part" data-part="' + p.id + '">' + esc(p.name) + withParticle(p.name) + ' 대화</button>' +
         '<button type="button" class="btn" data-act="go-workshop">부서에서 관리</button>' +
       '</div>');
   }
