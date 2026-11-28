@@ -117,6 +117,15 @@
     '총무·운영': { role: '총무과장', zone: '총무과' }
   };
 
+  function chatRoles(chat) {
+    if (!Array.isArray(chat)) return chat;
+    return chat.map(function (m) {
+      var map = ROLE_MAP[m.role];
+      if (map) m.role = map.role;
+      return m;
+    });
+  }
+
   /* 이전 회사 테마 저장값을 시청 테마로 옮깁니다. 메모와 대화는 그대로 둡니다. */
   function migrateLegacy(old) {
     if (!old) return null;
@@ -128,9 +137,11 @@
       return p;
     }) : undefined;
     return {
-      name: old.name, owner: old.owner, accent: old.accent, room: old.room,
+      name: old.name,
+      owner: old.owner === '아사월님의 비서' ? '아사월님의 비서실' : old.owner,
+      accent: old.accent, room: old.room,
       motion: old.motion, parts: parts,
-      memos: old.memos, chat: old.chat, memoRev: old.memoRev
+      memos: old.memos, chat: chatRoles(old.chat), memoRev: old.memoRev
     };
   }
 
@@ -346,7 +357,7 @@
     host.innerHTML =
       '<div class="office-main">' +
         '<section class="card hero">' +
-          '<span class="tag">City Hall</span>' +
+          '<span class="tag">청사</span>' +
           '<h2>' + esc(headline) + '</h2>' +
           '<p>청사 공간이나 담당 부서를 누르면 최근 업무 현황을 볼 수 있어요.</p>' +
         '</section>' +
@@ -513,7 +524,7 @@
         '<span class="row-avatar" style="background:' + p.accent + '">' + esc(initial(p.name)) + '</span>' +
         '<span class="row-body">' +
           '<span class="row-title"><span class="state-dot' + (on ? '' : ' is-off') + '"></span>' + esc(p.name) + '</span>' +
-          '<span class="row-sub">' + esc(p.role) + ' · ' + (on ? '가동 중' : '쉬는 중') + '</span>' +
+          '<span class="row-sub">' + esc(p.role) + ' · ' + (on ? '근무 중' : '휴무') + '</span>' +
         '</span>' +
       '</div>' +
       '<div class="sheet-line"><b>지금</b> · ' + esc(on ? p.status : '잠시 대기 중이에요') + '</div>' +
@@ -854,14 +865,14 @@
             '<div class="part-role">' + esc(p.role) + (p.zone && p.zone !== p.role ? ' · ' + esc(p.zone) : '') + '</div>' +
           '</div>' +
           '<div class="part-tools">' +
-            '<button type="button" class="switch" role="switch" aria-checked="' + (p.on ? 'true' : 'false') + '" data-act="toggle-part" data-part="' + p.id + '" aria-label="' + esc(p.name) + ' 가동 전환"></button>' +
+            '<button type="button" class="switch" role="switch" aria-checked="' + (p.on ? 'true' : 'false') + '" data-act="toggle-part" data-part="' + p.id + '" aria-label="' + esc(p.name) + ' 근무 전환"></button>' +
           '</div>' +
         '</div>' +
-        '<div class="part-status"><span class="state-dot' + (p.on ? '' : ' is-off') + '"></span><span>' + esc(p.on ? p.status : '쉬는 중') + '</span></div>' +
+        '<div class="part-status"><span class="state-dot' + (p.on ? '' : ' is-off') + '"></span><span>' + esc(p.on ? p.status : '휴무') + '</span></div>' +
         '<div class="part-actions">' +
           '<button type="button" class="btn" data-act="talk-part" data-part="' + p.id + '">대화</button>' +
           '<button type="button" class="btn" data-act="edit-part" data-part="' + p.id + '">수정</button>' +
-          (p.id === 'chief' ? '' : '<button type="button" class="btn danger" data-act="ask-remove-part" data-part="' + p.id + '">내보내기</button>') +
+          (p.id === 'chief' ? '' : '<button type="button" class="btn danger" data-act="ask-remove-part" data-part="' + p.id + '">전출</button>') +
         '</div>' +
       '</section>';
     }).join('');
@@ -885,7 +896,7 @@
         '<span class="row-avatar" style="background:' + p.accent + '">' + esc(initial(p.name)) + '</span>' +
         '<span><span class="phase-name">' + esc(p.name) + '</span>' +
           '<span class="phase-sub" style="display:block">' + esc(p.role) + '</span></span>' +
-        '<span class="phase-val">' + (p.on ? '가동 중' : '쉬는 중') + '</span>' +
+        '<span class="phase-val">' + (p.on ? '근무 중' : '휴무') + '</span>' +
       '</div>';
     }).join('');
 
@@ -898,7 +909,7 @@
             '<span class="phase-val">Lv.' + (r.level || 2) + ' · 접속 중</span>' +
           '</div>';
         }).join('')
-      : '<div class="empty">아직 함께 접속한 피클이 없어요.<br>초대 링크를 보내면 이 방에서 만날 수 있어요.</div>';
+      : '<div class="empty">아직 함께 접속한 피클이 없어요.<br>초대 링크를 보내면 같은 청사에서 만날 수 있어요.</div>';
 
     host.innerHTML =
       '<div class="status-grid">' +
