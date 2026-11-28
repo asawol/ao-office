@@ -1,12 +1,13 @@
 /* ─────────────────────────────────────────────
-   Cream Office — app.js
-   크림 본부 3D 오피스: 파트 현황 · 회의실 · 작업실 · 현황 · 메모
+   아사월 시청 — app.js
+   지방 시청 청사 3D: 부서 현황 · 회의실 · 부서 · 결재현황 · 지시메모
    실시간 동기화: js/net.js (MQTT) + BroadcastChannel, 저장: localStorage
    ───────────────────────────────────────────── */
 (function () {
   'use strict';
 
-  var LS_KEY = 'cream-office-v4';
+  var LS_KEY = 'cityhall-office-v5';
+  var LEGACY_KEY = 'cream-office-v4';
   var $ = function (sel, root) { return (root || document).querySelector(sel); };
   var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
 
@@ -36,95 +37,121 @@
   var PALETTE = ['#e85aa6', '#5b76e8', '#e9932f', '#2aa98a', '#7b61d9', '#c2a15a'];
 
   var DEFAULT_PARTS = [
-    { id: 'chief', name: '크림', role: '지휘', zone: '지휘실', accent: '#e85aa6', on: true,
-      status: '대표님 지시를 기다리는 중', line: '오늘 일정은 제가 정리해 둘게요.', anchor: [53, 18] },
-    { id: 'plan', name: '모아', role: '기획·일정', zone: '기획·일정', accent: '#5b76e8', on: true,
-      status: '이번 주 계획표 정리 중', line: '화요일 리뷰는 오전 10시로 잡아둘게요.', anchor: [31, 47] },
-    { id: 'dev', name: '코다', role: '개발·리서치', zone: '개발·리서치', accent: '#e9932f', on: true,
-      status: '경쟁사 자료 조사 중', line: '비교표 초안은 오후에 올려둘게요.', anchor: [47, 53] },
-    { id: 'ops', name: '하루', role: '총무·운영', zone: '총무·운영', accent: '#2aa98a', on: true,
-      status: '비품과 회의실 정리 중', line: '회의실 예약은 제가 챙겼어요.', anchor: [64, 44] }
+    { id: 'chief', name: '크림', role: '비서실장', zone: '비서실', accent: '#e85aa6', on: true,
+      status: '시장님 지시를 기다리는 중', line: '오늘 일정과 결재 서류는 제가 정리해 두겠습니다.', anchor: [53, 18] },
+    { id: 'plan', name: '모아', role: '기획예산과장', zone: '기획예산과', accent: '#5b76e8', on: true,
+      status: '내년 예산안 검토 중', line: '추경 예산안은 이번 주 안에 정리해 올리겠습니다.', anchor: [31, 47] },
+    { id: 'dev', name: '코다', role: '정보화 주무관', zone: '정보통신과', accent: '#e9932f', on: true,
+      status: '시 홈페이지 개편 자료 조사 중', line: '민원 시스템 점검 결과는 오후에 보고드리겠습니다.', anchor: [47, 53] },
+    { id: 'ops', name: '하루', role: '총무과장', zone: '총무과', accent: '#2aa98a', on: true,
+      status: '청사 시설과 의전 준비 중', line: '간부회의 준비와 방문객 안내는 제가 챙겼습니다.', anchor: [64, 44] }
   ];
 
   var SPACES = [
-    { id: 'chief', label: '지휘실', x: 52, y: 40.5, kind: 'part', name: '지휘실' },
-    { id: 'meeting', label: '대회의실', x: 20.5, y: 43, kind: 'room' },
-    { id: 'plan', label: '기획·일정', x: 30, y: 69.5, kind: 'part' },
-    { id: 'dev', label: '개발·리서치', x: 48.5, y: 60, kind: 'part' },
-    { id: 'ops', label: '총무·운영', x: 64.5, y: 51, kind: 'part' },
-    { id: 'lounge', label: '라운지', x: 77.5, y: 71.5, kind: 'room' }
+    { id: 'chief', label: '비서실', x: 52, y: 40.5, kind: 'part', name: '비서실' },
+    { id: 'meeting', label: '간부회의실', x: 20.5, y: 43, kind: 'room' },
+    { id: 'plan', label: '기획예산과', x: 30, y: 69.5, kind: 'part' },
+    { id: 'dev', label: '정보통신과', x: 48.5, y: 60, kind: 'part' },
+    { id: 'ops', label: '총무과', x: 64.5, y: 51, kind: 'part' },
+    { id: 'lounge', label: '민원·휴게실', x: 77.5, y: 71.5, kind: 'room' }
   ];
 
   var ROOMS = {
     meeting: {
-      title: '대회의실',
-      desc: '유리로 나뉜 6인 회의실. 여기서 정한 일은 회의실 탭 대화로 바로 이어집니다.',
-      status: '예약 없음 · 바로 사용할 수 있어요',
+      title: '간부회의실',
+      desc: '시장님과 간부 공무원이 마주 앉는 회의실. 여기서 정한 일은 회의실 탭 대화로 바로 이어집니다.',
+      status: '예약 없음 · 바로 사용할 수 있습니다',
       action: '회의실로 가기',
       prefill: ''
     },
     lounge: {
-      title: '라운지',
-      desc: '커피와 잠깐의 숨. 파트들이 하루에 한 번씩 여기서 쉬어갑니다.',
-      status: '조용함 · 다들 집중 중',
-      action: '다들 격려 한마디',
-      prefill: '다들 수고 많았어요 ☕'
+      title: '민원·휴게실',
+      desc: '민원인과 직원이 함께 잠깐 쉬어가는 자리. 부서 사람들이 하루에 한 번씩 들릅니다.',
+      status: '조용함 · 모두 업무 중',
+      action: '직원들 격려 한마디',
+      prefill: '다들 수고 많으십니다 ☕'
     }
   };
 
   var REPLIES = {
     chief: [
-      '네, 대표님. 제가 먼저 정리해서 올려두겠습니다.',
-      '확인했습니다. 우선순위대로 진행할게요.',
-      '지금 네 파트 모두 움직이고 있어요. 마무리되면 정리해 드릴게요.',
-      '필요한 부분만 짚어 주시면 나머지는 제가 맞춰 둘게요.',
-      '오늘은 제가 먼저 움직이고, 결정이 필요한 것만 여쭙겠습니다.'
+      '네, 시장님. 제가 먼저 정리해서 올려두겠습니다.',
+      '확인했습니다. 부서별 우선순위를 정해 진행하겠습니다.',
+      '기획예산과·정보통신과·총무과 모두 움직이고 있습니다. 마무리되는 대로 보고드리겠습니다.',
+      '필요한 부분만 짚어 주시면 나머지는 제가 맞춰 두겠습니다.',
+      '오늘은 제가 먼저 챙기고, 결재가 필요한 것만 올리겠습니다.'
     ],
     plan: [
-      '일정 정리해서 공유드릴게요. 내일 오전에 한 번 더 확인하겠습니다.',
-      '이번 주 핵심은 화요일 리뷰와 목요일 보고예요.',
-      '회의는 오후 2시로 잡아둘까요? 대표님 편한 시간 알려주세요.',
-      '우선순위대로 세 개만 추렸습니다. 나머지는 다음 주로 넘겼어요.',
-      '비는 시간은 목요일 오전이에요. 그때 몰아서 잡아도 됩니다.'
+      '일정 정리해서 보고드리겠습니다. 내일 오전에 한 번 더 확인하겠습니다.',
+      '이번 주 핵심은 화요일 간부회의와 목요일 시의회 보고입니다.',
+      '간부회의는 오후 2시로 잡아둘까요? 시장님 편한 시간 알려 주십시오.',
+      '안건은 세 건으로 추렸습니다. 나머지는 다음 주로 넘겼습니다.',
+      '비는 시간은 목요일 오전입니다. 그때 몰아서 잡아도 됩니다.'
     ],
     dev: [
-      '리서치 자료 세 건 정리 중입니다. 초안은 오후에 올려둘게요.',
-      '경쟁 서비스 비교표는 거의 다 됐어요. 마지막 검수만 남았습니다.',
-      '이번 안건은 기술적으로는 문제 없어 보여요. 일정만 확인하면 됩니다.',
-      '레퍼런스 링크 모아 두었습니다. 필요하실 때 말씀해 주세요.',
-      '새로 나온 사례 두 개 찾았어요. 짧게 요약해서 붙여둘게요.'
+      '민원 시스템 점검 결과 정리 중입니다. 초안은 오후에 올리겠습니다.',
+      '시 홈페이지 개편 자료는 거의 다 됐습니다. 마지막 검수만 남았습니다.',
+      '이번 안건은 기술적으로는 문제 없어 보입니다. 일정만 확인하면 됩니다.',
+      '관련 자료 링크 모아 두었습니다. 필요하실 때 말씀해 주십시오.',
+      '타 지자체 사례 두 건 찾았습니다. 짧게 요약해서 붙여두겠습니다.'
     ],
     ops: [
-      '비품과 회의실 예약은 제가 챙겼습니다. 빠진 건 없어요.',
-      '대표님 자리 주변 정리해 두었어요. 필요한 서류는 데스크 위에 있습니다.',
-      '택배는 오후 4시쯤 도착 예정이에요. 받으면 알려드릴게요.',
-      '다음 주 외부 미팅 준비물 목록 확인해 두겠습니다.',
-      '커피와 다과는 내일 오전에 채워둘게요.'
+      '청사 시설과 회의실 준비는 제가 챙겼습니다. 빠진 건 없습니다.',
+      '시장님 집무실 주변 정리해 두었습니다. 결재 서류는 책상 위에 있습니다.',
+      '방문객 안내는 오후 4시쯤 마무리됩니다. 끝나면 보고드리겠습니다.',
+      '다음 주 외부 행사 준비물 목록 확인해 두겠습니다.',
+      '다과와 의전 물품은 내일 오전에 채워두겠습니다.'
     ]
   };
 
   var GREET_REPLIES = [
-    '안녕하세요, 대표님. 오늘도 잘 부탁드립니다.',
-    '네, 대표님. 다들 자리에 있습니다.',
-    '부르셨어요? 바로 확인하겠습니다.'
+    '네, 시장님. 말씀하십시오.',
+    '시장님, 부서 모두 자리하고 있습니다.',
+    '부르셨습니까. 바로 확인하겠습니다.'
   ];
+
+  var ROLE_MAP = {
+    '지휘': { role: '비서실장', zone: '비서실' },
+    '기획·일정': { role: '기획예산과장', zone: '기획예산과' },
+    '개발·리서치': { role: '정보화 주무관', zone: '정보통신과' },
+    '총무·운영': { role: '총무과장', zone: '총무과' }
+  };
+
+  /* 이전 회사 테마 저장값을 시청 테마로 옮깁니다. 메모와 대화는 그대로 둡니다. */
+  function migrateLegacy(old) {
+    if (!old) return null;
+    var parts = Array.isArray(old.parts) ? old.parts.map(function (p) {
+      var m = ROLE_MAP[p.role];
+      if (m) { p.role = m.role; p.zone = m.zone; }
+      var base = DEFAULT_PARTS.filter(function (x) { return x.id === p.id; })[0];
+      if (base) { p.status = base.status; p.line = base.line; p.anchor = base.anchor; }
+      return p;
+    }) : undefined;
+    return {
+      name: old.name, owner: old.owner, accent: old.accent, room: old.room,
+      motion: old.motion, parts: parts,
+      memos: old.memos, chat: old.chat, memoRev: old.memoRev
+    };
+  }
 
   /* ── state ─────────────────────────────── */
   var params = new URLSearchParams(location.search);
-  var saved = store.json(LS_KEY, null) || {};
+  var saved = store.json(LS_KEY, null);
+  if (!saved) saved = migrateLegacy(store.json(LEGACY_KEY, null));
+  saved = saved || {};
 
   var S = {
     name: saved.name || '크림',
-    owner: saved.owner || '아사월님의 비서',
+    owner: saved.owner || '아사월님의 비서실',
     accent: saved.accent || '#e85aa6',
     room: params.get('room') || saved.room || 'asawol-office',
     motion: saved.motion !== false,
     tab: 'office',
     parts: Array.isArray(saved.parts) && saved.parts.length ? saved.parts : DEFAULT_PARTS.slice(),
     memos: Array.isArray(saved.memos) ? saved.memos : [
-      { id: uid(), text: '주간 보고 초안 다듬기 — 목요일 오전까지', done: false, by: '모아', at: Date.now() - 6e5 },
-      { id: uid(), text: '신규 리서치 링크 정리해서 공유', done: false, by: '코다', at: Date.now() - 4e5 },
-      { id: uid(), text: '회의실 예약 · 다과 준비', done: true, by: '하루', at: Date.now() - 2e5 }
+      { id: uid(), text: '주간 업무보고 초안 마련 — 목요일 오전까지', done: false, by: '모아', at: Date.now() - 6e5 },
+      { id: uid(), text: '시 홈페이지 개편 자료 정리해서 공유', done: false, by: '코다', at: Date.now() - 4e5 },
+      { id: uid(), text: '간부회의실 예약 · 방문객 안내 준비', done: true, by: '하루', at: Date.now() - 2e5 }
     ],
     chat: Array.isArray(saved.chat) ? saved.chat.slice(-60) : [],
     memoRev: saved.memoRev || Date.now()
@@ -262,10 +289,10 @@
   function renderChrome() {
     var n = activeParts().length;
     var sub = $('#brandSub');
-    if (sub) sub.textContent = '크림 본부 · ' + (n ? n + '개 파트 가동 중' : '잠시 쉬는 중');
+    if (sub) sub.textContent = '시청 비서실 · ' + (n ? n + '개 부서 근무 중' : '전 부서 퇴근');
     var mark = $('#brandMark');
-    if (mark) mark.textContent = 'K.';
-    document.title = 'Cream Office · 크림 본부';
+    if (mark) mark.textContent = '市';
+    document.title = '아사월 시청 · 비서실';
   }
 
   function renderCurrent() {
@@ -313,34 +340,34 @@
     var act = activeParts();
     var n = act.length;
     var headline = n === 0
-      ? '대표님, 지금은 모든 파트가 쉬고 있어요'
-      : '대표님, ' + n + '개 파트가 대기 중이에요';
+      ? '시장님, 지금은 모든 부서가 퇴근했어요'
+      : '시장님, ' + n + '개 부서가 근무 중이에요';
 
     host.innerHTML =
       '<div class="office-main">' +
         '<section class="card hero">' +
-          '<span class="tag">Workspace</span>' +
+          '<span class="tag">City Hall</span>' +
           '<h2>' + esc(headline) + '</h2>' +
-          '<p>공간이나 담당자를 탭하면 최근 진행 현황을 바로 볼 수 있어요.</p>' +
+          '<p>청사 공간이나 담당 부서를 누르면 최근 업무 현황을 볼 수 있어요.</p>' +
         '</section>' +
         '<div class="chips">' +
           '<button type="button" class="chip dark' + (S.motion ? '' : ' is-off') + '" data-act="motion" aria-pressed="' + (S.motion ? 'true' : 'false') + '">' +
             '<span class="chip-dot" aria-hidden="true"></span>모션 ' + (S.motion ? 'ON' : 'OFF') +
           '</button>' +
-          '<span class="chip">가동 ' + n + '파트</span>' +
+          '<span class="chip">근무 ' + n + '부서</span>' +
           '<span class="chip">Lv.' + level() + ' ' + esc(S.name) + '</span>' +
         '</div>' +
         '<section class="card map-card">' +
           '<div class="map" id="map">' +
             '<picture>' +
               '<source srcset="assets/office-diorama.webp" type="image/webp" />' +
-              '<img src="assets/office-diorama.jpg" srcset="assets/office-diorama@700.jpg 700w, assets/office-diorama.jpg 1402w" sizes="(min-width: 900px) 700px, 100vw" width="1402" height="1122" alt="크림 본부 3D 아이소메트릭 오피스" fetchpriority="high" decoding="async" />' +
+              '<img src="assets/office-diorama.jpg" srcset="assets/office-diorama@700.jpg 700w, assets/office-diorama.jpg 1402w" sizes="(min-width: 900px) 700px, 100vw" width="1402" height="1122" alt="아사월 시청 3D 아이소메트릭 청사" fetchpriority="high" decoding="async" />' +
             '</picture>' +
             pinsHTML() +
             '<div class="bubble" id="mapBubble"></div>' +
           '</div>' +
           '<div class="map-foot">' +
-            '<span><strong>' + n + '개 파트</strong>가 일하고 있어요</span>' +
+            '<span><strong>' + n + '개 부서</strong>가 근무 중이에요</span>' +
             '<span>' + (netState === 'live' ? '실시간 동기화' : '이 브라우저에서') + '</span>' +
           '</div>' +
         '</section>' +
@@ -389,7 +416,7 @@
   function partRowsHTML() {
     var act = activeParts();
     if (!act.length) {
-      return '<div class="empty">모든 파트가 쉬고 있어요.<br>작업실에서 AI 동료를 다시 켤 수 있어요.</div>';
+      return '<div class="empty">모든 부서가 퇴근했어요.<br>부서 탭에서 AI 공무원을 다시 켤 수 있어요.</div>';
     }
     return act.map(function (p) {
       return '<button type="button" class="row" data-act="pin" data-space="' + p.id + '">' +
@@ -472,9 +499,9 @@
     var p = partById(sp.id);
     if (!p) {
       openSheet(sp.label,
-        '<p class="sheet-note">아직 이 자리에 담당 파트가 없어요. 작업실에서 AI 동료를 추가해 보세요.</p>' +
+        '<p class="sheet-note">아직 이 자리에 담당 부서가 없어요. 부서 탭에서 AI 공무원을 임명해 보세요.</p>' +
         '<div class="sheet-actions">' +
-          '<button type="button" class="btn primary" data-act="go-workshop">작업실로 가기</button>' +
+          '<button type="button" class="btn primary" data-act="go-workshop">부서 탭으로 가기</button>' +
           '<button type="button" class="btn" data-act="close-sheet">닫기</button>' +
         '</div>');
       return;
@@ -493,17 +520,17 @@
       '<div class="sheet-line"><b>최근 한마디</b> · "' + esc(p.line) + '"</div>' +
       '<div class="sheet-actions">' +
         '<button type="button" class="btn primary" data-act="talk-part" data-part="' + p.id + '">' + esc(p.name) + '와 대화</button>' +
-        '<button type="button" class="btn" data-act="go-workshop">작업실에서 관리</button>' +
+        '<button type="button" class="btn" data-act="go-workshop">부서에서 관리</button>' +
       '</div>');
   }
 
   function openSettings() {
     openSheet('설정',
-      '<div class="field"><label for="setName">내 피클 이름</label>' +
+      '<div class="field"><label for="setName">내 이름 (비서실장)</label>' +
         '<input id="setName" maxlength="12" value="' + esc(S.name) + '" /></div>' +
       '<div class="field"><label for="setOwner">소개</label>' +
         '<input id="setOwner" maxlength="30" value="' + esc(S.owner) + '" /></div>' +
-      '<div class="field"><label for="setRoom">방 이름 (같은 이름이면 실시간으로 이어져요)</label>' +
+      '<div class="field"><label for="setRoom">청사 코드 (같은 이름이면 실시간으로 이어져요)</label>' +
         '<input id="setRoom" maxlength="32" value="' + esc(S.room) + '" /></div>' +
       '<div class="field"><label>색상</label><div class="swatches" id="setSwatches">' +
         PALETTE.map(function (c) {
@@ -513,7 +540,7 @@
         '<button type="button" class="btn primary" data-act="save-settings">저장</button>' +
         '<button type="button" class="btn" data-act="copy-invite">초대 링크 복사</button>' +
       '</div>' +
-      '<p class="hint">설정은 이 브라우저에 저장돼요. 방 이름을 바꾸면 새 방으로 이어집니다.</p>',
+      '<p class="hint">설정은 이 브라우저에 저장돼요. 청사 코드를 바꾸면 새 청사로 이어집니다.</p>',
       function (root) {
         $$('.swatch', root).forEach(function (b) {
           b.addEventListener('click', function () {
@@ -526,23 +553,23 @@
 
   function openAddPart(editId) {
     var p = editId ? partById(editId) : null;
-    var roles = ['기획·일정', '개발·리서치', '총무·운영', '리서치', '콘텐츠', '고객 응대'];
-    openSheet(p ? 'AI 동료 수정' : 'AI 동료 추가',
+    var roles = ['기획예산과장', '정보화 주무관', '총무과장', '공보담당관', '민원응대팀', '정책연구관'];
+    openSheet(p ? 'AI 공무원 인사기록' : 'AI 공무원 임명',
       '<div class="field"><label for="apName">이름</label>' +
         '<input id="apName" maxlength="10" placeholder="예: 모아" value="' + esc(p ? p.name : '') + '" /></div>' +
-      '<div class="field"><label for="apRole">담당 파트</label>' +
-        '<input id="apRole" maxlength="16" placeholder="예: 기획·일정" value="' + esc(p ? p.role : '') + '" list="roleList" />' +
+      '<div class="field"><label for="apRole">소속 · 직위</label>' +
+        '<input id="apRole" maxlength="16" placeholder="예: 기획예산과장" value="' + esc(p ? p.role : '') + '" list="roleList" />' +
         '<datalist id="roleList">' + roles.map(function (r) { return '<option value="' + r + '">'; }).join('') + '</datalist></div>' +
       '<div class="field"><label for="apStatus">지금 하는 일</label>' +
-        '<input id="apStatus" maxlength="40" placeholder="예: 이번 주 계획표 정리 중" value="' + esc(p ? p.status : '') + '" /></div>' +
+        '<input id="apStatus" maxlength="40" placeholder="예: 내년 예산안 검토 중" value="' + esc(p ? p.status : '') + '" /></div>' +
       '<div class="field"><label>색상</label><div class="swatches" id="apSwatches">' +
         PALETTE.map(function (c) {
           var cur = p ? p.accent === c : c === '#7b61d9';
           return '<button type="button" class="swatch" data-color="' + c + '" aria-pressed="' + cur + '" style="background:' + c + '"></button>';
         }).join('') + '</div></div>' +
       '<div class="sheet-actions">' +
-        '<button type="button" class="btn primary" data-act="save-part" data-edit="' + (p ? p.id : '') + '">' + (p ? '저장' : '동료 들이기') + '</button>' +
-        (p ? '<button type="button" class="btn danger" data-act="ask-remove-part" data-part="' + p.id + '">내보내기</button>' : '') +
+        '<button type="button" class="btn primary" data-act="save-part" data-edit="' + (p ? p.id : '') + '">' + (p ? '저장' : '임명하기') + '</button>' +
+        (p ? '<button type="button" class="btn danger" data-act="ask-remove-part" data-part="' + p.id + '">전출 보내기</button>' : '') +
       '</div>',
       function (root) {
         $$('.swatch', root).forEach(function (b) {
@@ -574,14 +601,14 @@
     } else {
       var id = 'p' + uid().slice(0, 6);
       S.parts.push({
-        id: id, name: name, role: role || '새 파트', zone: role || '새 파트',
-        accent: accent, on: true, status: status || '새로 합류했어요',
-        line: name + '입니다. 잘 부탁드립니다!', anchor: [50, 44]
+        id: id, name: name, role: role || '새 부서', zone: role || '새 부서',
+        accent: accent, on: true, status: status || '새로 부임했습니다',
+        line: name + '입니다. 잘 부탁드립니다.', anchor: [50, 44]
       });
     }
     save();
     closeSheet();
-    toast(editId ? '동료 정보를 저장했어요' : name + ' 님이 합류했어요');
+    toast(editId ? '인사기록을 저장했어요' : name + ' 님이 부임했어요');
     renderCurrent();
     if (net) net.send({ kind: 'state', name: S.name, owner: S.owner, level: level(), accent: S.accent });
   }
@@ -589,10 +616,10 @@
   function askRemovePart(id) {
     var p = partById(id);
     if (!p) return;
-    openSheet('동료 내보내기',
-      '<p class="sheet-note">' + esc(p.name) + ' 님을 작업실에서 내보낼까요? 메모와 대화는 그대로 남습니다.</p>' +
+    openSheet('전출 보내기',
+      '<p class="sheet-note">' + esc(p.name) + ' 님을 이 청사에서 전출 보낼까요? 지시메모와 대화는 그대로 남습니다.</p>' +
       '<div class="sheet-actions">' +
-        '<button type="button" class="btn danger" data-act="remove-part" data-part="' + id + '">내보내기</button>' +
+        '<button type="button" class="btn danger" data-act="remove-part" data-part="' + id + '">전출 보내기</button>' +
         '<button type="button" class="btn" data-act="close-sheet">취소</button>' +
       '</div>');
   }
@@ -600,7 +627,7 @@
   function removePart(id) {
     S.parts = S.parts.filter(function (p) { return p.id !== id; });
     save(); closeSheet(); renderCurrent();
-    toast('동료를 내보냈어요');
+    toast('전출 처리했어요');
   }
 
   function togglePart(id) {
@@ -625,15 +652,15 @@
           '<div class="messages" id="messages" aria-live="polite"></div>' +
           '<div class="quick-row" id="quickRow"></div>' +
           '<form class="composer" id="composer" autocomplete="off">' +
-            '<input id="chatInput" maxlength="400" placeholder="AI 동료에게 말을 걸어 보세요" aria-label="메시지" />' +
+            '<input id="chatInput" maxlength="400" placeholder="부서에 지시하거나 시장님 말씀을 남겨 보세요" aria-label="메시지" />' +
             '<button type="submit" id="sendBtn">전송</button>' +
           '</form>' +
         '</section>' +
         '<aside class="office-side">' +
           '<section class="card side-card">' +
-            '<div class="side-head"><h3>이 방의 파트</h3><span id="partyCount"></span></div>' +
+            '<div class="side-head"><h3>이 방의 부서</h3><span id="partyCount"></span></div>' +
             '<div class="rows" id="partyRows"></div>' +
-            '<p class="hint" style="padding:6px 2px 10px">빠른 인사로 대화를 시작해 보세요. 답장은 동료들이 직접 남깁니다.</p>' +
+            '<p class="hint" style="padding:6px 2px 10px">빠른 지시로 대화를 시작해 보세요. 답장은 담당 공무원이 직접 남깁니다.</p>' +
           '</section>' +
         '</aside>' +
       '</div>';
@@ -656,7 +683,7 @@
 
   function renderChatHead() {
     var sub = $('#chatSub');
-    if (sub) sub.textContent = 'AI 동료 ' + activeParts().length + '명' + (Object.keys(remotes).length ? ' · 피클 ' + Object.keys(remotes).length + '명' : '');
+    if (sub) sub.textContent = 'AI 공무원 ' + activeParts().length + '명' + (Object.keys(remotes).length ? ' · 피클 ' + Object.keys(remotes).length + '명' : '');
     var party = $('#chatParty');
     if (!party) return;
     var act = activeParts();
@@ -685,7 +712,7 @@
         '<span class="row-sub">' + esc(r.owner || '다른 피클') + '</span></span>' +
         '<span class="state-dot"></span></div>';
     });
-    if (!html) html = '<div class="empty">지금은 조용해요. 작업실에서 동료를 켜 보세요.</div>';
+    if (!html) html = '<div class="empty">지금은 조용해요. 부서 탭에서 AI 공무원을 켜 보세요.</div>';
     host.innerHTML = html;
     var pc = $('#partyCount');
     if (pc) pc.textContent = act.length + '명';
@@ -694,7 +721,7 @@
   function renderQuick() {
     var row = $('#quickRow');
     if (!row) return;
-    var qs = ['안녕하세요', '오늘 일정 알려줘', '진행 상황 공유해줘', '회의실 비어 있어?'];
+    var qs = ['안녕하세요', '오늘 일정 알려줘', '진행 상황 보고해줘', '민원 처리 현황 알려줘'];
     row.innerHTML = qs.map(function (q) {
       return '<button type="button" class="quick" data-act="quick" data-text="' + esc(q) + '">' + esc(q) + '</button>';
     }).join('');
@@ -704,7 +731,7 @@
     var host = $('#messages');
     if (!host) return;
     if (!S.chat.length) {
-      host.innerHTML = '<div class="empty">아직 대화가 없어요.<br>아래에 인사를 남기면 동료들이 답합니다.</div>';
+      host.innerHTML = '<div class="empty">아직 대화가 없어요.<br>아래에 지시를 남기면 담당 공무원이 답합니다.</div>';
       return;
     }
     host.innerHTML = S.chat.map(function (m) {
@@ -730,23 +757,23 @@
   }
 
   function sendChat(text) {
-    var mine = { id: uid(), mine: true, name: S.name, role: '지휘', accent: S.accent, text: text, at: Date.now() };
+    var mine = { id: uid(), mine: true, name: S.name, role: '비서실장', accent: S.accent, text: text, at: Date.now() };
     S.chat.push(mine);
     S.chat = S.chat.slice(-60);
     saveSoon();
     renderMessages();
     scrollMessages();
-    if (net) net.send({ kind: 'chat', text: text, name: S.name, role: '지휘', accent: S.accent });
+    if (net) net.send({ kind: 'chat', text: text, name: S.name, role: '비서실장', accent: S.accent });
     aiReply(text);
   }
 
   function roleMatches(p, cat) {
     if (p.id === cat) return true;
     var r = p.role || '';
-    if (cat === 'chief') return /지휘|비서/.test(r);
-    if (cat === 'plan') return /기획|일정|계획/.test(r);
-    if (cat === 'dev') return /개발|리서치|조사|분석/.test(r);
-    if (cat === 'ops') return /총무|운영|관리|고객/.test(r);
+    if (cat === 'chief') return /비서|실장|지휘/.test(r);
+    if (cat === 'plan') return /기획|예산|일정|계획|의전|조례/.test(r);
+    if (cat === 'dev') return /정보|통신|전산|개발|리서치|조사|분석|정책|통계/.test(r);
+    if (cat === 'ops') return /총무|운영|관리|민원|공보|홍보|서무/.test(r);
     return false;
   }
 
@@ -756,9 +783,9 @@
     if (!act.length) return null;
     var want = null;
     if (/안녕|하이|반가|수고|고마|감사/.test(t)) want = 'chief';
-    else if (/일정|스케줄|회의|캘린더|약속|계획|날짜/.test(t)) want = 'plan';
-    else if (/개발|리서치|조사|코드|버그|자료|시장|경쟁|분석/.test(t)) want = 'dev';
-    else if (/총무|비품|배송|택배|예약|구매|정리|준비|다과/.test(t)) want = 'ops';
+    else if (/일정|스케줄|회의|캘린더|약속|계획|날짜|예산|추경|조례|시의회|의전|보고/.test(t)) want = 'plan';
+    else if (/정보|전산|홈페이지|시스템|개발|리서치|조사|자료|분석|정책|통계|버그/.test(t)) want = 'dev';
+    else if (/총무|민원|시설|비품|배송|택배|예약|구매|정리|준비|다과|공보|홍보|보도/.test(t)) want = 'ops';
     var p = want ? act.filter(function (x) { return roleMatches(x, want); })[0] : null;
     if (p) return p;
     return act[Math.floor(Math.random() * act.length)];
@@ -841,8 +868,8 @@
 
     host.innerHTML =
       '<div class="workshop-grid">' + cards +
-        '<button type="button" class="add-part" data-act="add-part">＋ AI 동료 추가</button>' +
-        '<p class="hint">파트를 켜고 끄면 오피스 핀과 현황에 바로 반영돼요. 꺼 둔 파트는 대화에 답하지 않습니다.</p>' +
+        '<button type="button" class="add-part" data-act="add-part">＋ AI 공무원 임명</button>' +
+        '<p class="hint">부서를 켜고 끄면 청사 핀과 결재현황에 바로 반영됩니다. 꺼 둔 부서는 대화에 답하지 않습니다.</p>' +
       '</div>';
   }
 
@@ -882,14 +909,14 @@
             '<div class="me-owner">' + esc(S.owner) + '</div></div>' +
           '</div>' +
           '<div class="me-stats">' +
-            '<div class="stat"><b>' + act.length + '</b><span>가동 파트</span></div>' +
+            '<div class="stat"><b>' + act.length + '</b><span>근무 부서</span></div>' +
             '<div class="stat"><b>' + remoteList.length + '</b><span>연결된 피클</span></div>' +
-            '<div class="stat"><b>' + S.memos.filter(function (m) { return !m.done; }).length + '</b><span>남은 메모</span></div>' +
+            '<div class="stat"><b>' + S.memos.filter(function (m) { return !m.done; }).length + '</b><span>미결 지시</span></div>' +
           '</div>' +
         '</section>' +
         '<section class="card side-card">' +
-          '<div class="side-head"><h3>파트 상태</h3><span>' + act.length + '/' + S.parts.length + ' 가동</span></div>' +
-          '<div class="phase-list">' + (partsHTML || '<div class="empty">아직 파트가 없어요.</div>') + '</div>' +
+          '<div class="side-head"><h3>부서 근무 현황</h3><span>' + act.length + '/' + S.parts.length + ' 근무</span></div>' +
+          '<div class="phase-list">' + (partsHTML || '<div class="empty">아직 부서가 없어요.</div>') + '</div>' +
         '</section>' +
         '<section class="card side-card">' +
           '<div class="side-head"><h3>연결된 피클</h3><span>' + remoteList.length + '명</span></div>' +
@@ -898,7 +925,7 @@
         '<section class="card side-card span-2">' +
           '<div class="side-head"><h3>시스템</h3><span>' + (netState === 'live' ? 'LIVE' : netState === 'connecting' ? '연결 중' : '로컬') + '</span></div>' +
           '<div class="kv"><span>실시간 연결</span><b>' + (netState === 'live' ? 'MQTT 연결됨' : netState === 'connecting' ? '브로커 찾는 중' : '이 브라우저 안에서만') + '</b></div>' +
-          '<div class="kv"><span>방 이름</span><b>' + esc(S.room) + '</b></div>' +
+          '<div class="kv"><span>청사 코드</span><b>' + esc(S.room) + '</b></div>' +
           '<div class="kv"><span>저장 방식</span><b>localStorage · 최근 60개 대화</b></div>' +
           '<div class="kv"><span>모션</span><b>' + (S.motion ? 'ON' : 'OFF') + '</b></div>' +
         '</section>' +
@@ -930,7 +957,7 @@
     host.innerHTML =
       '<div class="memo-grid">' +
         '<form class="card memo-form" id="memoForm" autocomplete="off">' +
-          '<input id="memoInput" maxlength="120" placeholder="함께 볼 일을 적어 두세요" aria-label="메모 입력" />' +
+          '<input id="memoInput" maxlength="120" placeholder="부서에 지시할 일을 한 줄로 남겨 두세요" aria-label="지시메모 입력" />' +
           '<button type="submit" aria-label="메모 추가">' +
             '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>' +
           '</button>' +
@@ -938,10 +965,10 @@
         '<section class="card memo-card">' + listHTML + '</section>' +
         '<aside class="office-side">' +
           '<section class="card side-card">' +
-            '<div class="side-head"><h3>보드</h3><span>' + done + '/' + items.length + ' 완료</span></div>' +
-            '<div class="kv"><span>남은 일</span><b>' + (items.length - done) + '개</b></div>' +
-            '<div class="kv"><span>오늘 올린 메모</span><b>' + items.filter(function (m) { return new Date(m.at || 0).toDateString() === new Date().toDateString(); }).length + '개</b></div>' +
-            '<p class="hint" style="padding:10px 2px">메모는 이 방에 함께 있는 피클과 실시간으로 맞춰집니다.</p>' +
+            '<div class="side-head"><h3>지시 보드</h3><span>' + done + '/' + items.length + ' 완료</span></div>' +
+            '<div class="kv"><span>미결 지시</span><b>' + (items.length - done) + '개</b></div>' +
+            '<div class="kv"><span>오늘 접수</span><b>' + items.filter(function (m) { return new Date(m.at || 0).toDateString() === new Date().toDateString(); }).length + '개</b></div>' +
+            '<p class="hint" style="padding:10px 2px">지시메모는 이 청사에 함께 있는 피클과 실시간으로 맞춰집니다.</p>' +
           '</section>' +
         '</aside>' +
       '</div>';
@@ -1120,13 +1147,13 @@
   /* ── boot ──────────────────────────────── */
   if (S.chat.length === 0) {
     S.chat.push({
-      id: uid(), mine: false, name: '모아', role: '기획·일정', accent: '#5b76e8',
-      text: '대표님, 이번 주 일정표 정리해서 올려두었어요. 확인해 보실래요?',
+      id: uid(), mine: false, name: '모아', role: '기획예산과장', accent: '#5b76e8',
+      text: '시장님, 이번 주 일정표 정리해서 올려두었습니다. 확인해 보시겠습니까?',
       at: Date.now() - 42e5
     });
     S.chat.push({
-      id: uid(), mine: false, name: '하루', role: '총무·운영', accent: '#2aa98a',
-      text: '회의실 예약과 다과는 준비됐습니다. 필요한 것 있으면 말씀해 주세요.',
+      id: uid(), mine: false, name: '하루', role: '총무과장', accent: '#2aa98a',
+      text: '간부회의 준비와 다과는 완료했습니다. 더 필요하신 것 있으면 말씀해 주십시오.',
       at: Date.now() - 18e5
     });
   }

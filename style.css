@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────
-   Cream Office — 크림 본부 가상 오피스
+   아사월 시청 · 비서실 — 가상 청사
    soft off-white · white rounded cards · hairline borders
    ───────────────────────────────────────────── */
 
@@ -69,8 +69,8 @@ img{max-width:100%;display:block}
   background:linear-gradient(160deg,#2b3442,#161c25);
   color:#fff;
   display:flex;align-items:center;justify-content:center;
-  font-size:19px;font-weight:750;letter-spacing:-0.04em;
-  box-shadow:0 1px 2px rgba(16,24,40,.18), inset 0 1px 0 rgba(255,255,255,.08);
+  font-size:20px;font-weight:750;letter-spacing:-0.02em;
+  box-shadow:0 1px 2px rgba(16,24,40,.18), inset 0 0 0 1px rgba(203,178,106,.34), inset 0 1px 0 rgba(255,255,255,.08);
 }
 .brand-text{min-width:0}
 .brand-text h1{
@@ -666,7 +666,7 @@ button.chip{transition:background .16s,color .16s,border-color .16s}
 @media (min-width:900px){
   body{font-size:15px}
   .app{max-width:1080px;padding:30px 34px 64px}
-  .brand-mark{width:52px;height:52px;border-radius:16px;font-size:22px}
+  .brand-mark{width:52px;height:52px;border-radius:16px;font-size:24px}
   .brand-text h1{font-size:28px}
   .brand-text p{font-size:14px}
   .live-pill{padding:8px 13px;font-size:12px}
@@ -726,6 +726,11 @@ button.chip{transition:background .16s,color .16s,border-color .16s}
     animation:popIn .2s cubic-bezier(.2,.8,.3,1);
   }
   @keyframes popIn{from{transform:translate(-50%,-50%) scale(.97);opacity:.5}to{transform:translate(-50%,-50%) scale(1);opacity:1}}
+}
+
+@media (max-width:380px){
+  .tab{font-size:12px;padding:9px 1px}
+  .brand-text h1{font-size:21px}
 }
 
 @media (prefers-reduced-motion:reduce){

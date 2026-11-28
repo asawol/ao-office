@@ -4,25 +4,25 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#f5f6f8" />
-<title>Cream Office · 크림 본부</title>
-<meta name="description" content="크림 본부의 3D 오피스. 공간을 탭해 파트별 현황을 보고, AI 동료와 바로 대화하세요." />
-<meta property="og:title" content="Cream Office" />
-<meta property="og:description" content="크림 본부 · 4개 파트가 일하는 3D 오피스" />
+<title>아사월 시청 · 비서실</title>
+<meta name="description" content="아사월 시청 비서실의 3D 청사. 공간을 누르면 부서별 현황을 보고, AI 공무원과 바로 대화하세요." />
+<meta property="og:title" content="아사월 시청 · 비서실" />
+<meta property="og:description" content="아사월 시청 비서실 · 4개 부서가 근무하는 3D 청사" />
 <meta property="og:image" content="assets/office-diorama.jpg" />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%231e2530'/%3E%3Ctext x='32' y='44' font-family='Helvetica,Arial' font-size='34' font-weight='700' fill='%23fff' text-anchor='middle'%3EK.%3C/text%3E%3C/svg%3E" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%231e2530'/%3E%3Ctext x='32' y='44' font-family='Helvetica,Arial' font-size='32' font-weight='700' fill='%23fff' text-anchor='middle'%3E%EC%8B%9C%3C/text%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="style.css?v=20261127e" />
+<link rel="stylesheet" href="style.css?v=20261129a" />
 </head>
 <body>
 <div class="app" id="app">
 
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark" id="brandMark" aria-hidden="true">K.</span>
+      <span class="brand-mark" id="brandMark" aria-hidden="true">市</span>
       <div class="brand-text">
-        <h1>Cream Office</h1>
-        <p id="brandSub">크림 본부 · 4개 파트 가동 중</p>
+        <h1>아사월 시청</h1>
+        <p id="brandSub">시청 비서실 · 4개 부서 근무 중</p>
       </div>
     </div>
     <div class="topbar-actions">
@@ -38,20 +38,20 @@
     </div>
   </header>
 
-  <nav class="tabs" id="tabs" role="tablist" aria-label="오피스 메뉴">
-    <button type="button" class="tab is-active" role="tab" data-tab="office" aria-selected="true">오피스</button>
+  <nav class="tabs" id="tabs" role="tablist" aria-label="시청 메뉴">
+    <button type="button" class="tab is-active" role="tab" data-tab="office" aria-selected="true">청사</button>
     <button type="button" class="tab" role="tab" data-tab="meeting" aria-selected="false">회의실</button>
-    <button type="button" class="tab" role="tab" data-tab="workshop" aria-selected="false">작업실</button>
-    <button type="button" class="tab" role="tab" data-tab="status" aria-selected="false">현황</button>
-    <button type="button" class="tab" role="tab" data-tab="memo" aria-selected="false">메모</button>
+    <button type="button" class="tab" role="tab" data-tab="workshop" aria-selected="false">부서</button>
+    <button type="button" class="tab" role="tab" data-tab="status" aria-selected="false">결재현황</button>
+    <button type="button" class="tab" role="tab" data-tab="memo" aria-selected="false">지시메모</button>
   </nav>
 
   <main class="views">
-    <section class="view view-office is-active" id="view-office" role="tabpanel" aria-label="오피스"></section>
+    <section class="view view-office is-active" id="view-office" role="tabpanel" aria-label="청사"></section>
     <section class="view view-meeting" id="view-meeting" role="tabpanel" aria-label="회의실" hidden></section>
-    <section class="view view-workshop" id="view-workshop" role="tabpanel" aria-label="작업실" hidden></section>
-    <section class="view view-status" id="view-status" role="tabpanel" aria-label="현황" hidden></section>
-    <section class="view view-memo" id="view-memo" role="tabpanel" aria-label="메모" hidden></section>
+    <section class="view view-workshop" id="view-workshop" role="tabpanel" aria-label="부서" hidden></section>
+    <section class="view view-status" id="view-status" role="tabpanel" aria-label="결재현황" hidden></section>
+    <section class="view view-memo" id="view-memo" role="tabpanel" aria-label="지시메모" hidden></section>
   </main>
 
 </div>
@@ -70,8 +70,8 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="js/mqtt-lite.js?v=20261127e"></script>
-<script src="js/net.js?v=20261127e"></script>
-<script src="js/app.js?v=20261127e"></script>
+<script src="js/mqtt-lite.js?v=20261129a"></script>
+<script src="js/net.js?v=20261129a"></script>
+<script src="js/app.js?v=20261129a"></script>
 </body>
 </html>
