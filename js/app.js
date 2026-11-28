@@ -6,8 +6,8 @@
 (function () {
   'use strict';
 
-  var LS_KEY = 'cityhall-office-v6';
-  var LEGACY_KEYS = ['cityhall-office-v5', 'cream-office-v4'];
+  var LS_KEY = 'cityhall-office-v7';
+  var LEGACY_KEYS = ['cityhall-office-v6', 'cityhall-office-v5', 'cream-office-v4'];
   var $ = function (sel, root) { return (root || document).querySelector(sel); };
   var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
 
@@ -39,34 +39,34 @@
   var DEFAULT_PARTS = [
     { id: 'chief', name: '크림', role: '비서실장', zone: '비서실', accent: '#e85aa6', on: true,
       status: '시장님 지시를 기다리는 중', line: '오늘 일정과 결재 서류는 제가 정리해 두겠습니다.', anchor: [53, 18] },
-    { id: 'plan', name: '모아', role: '기획예산과장', zone: '기획예산과', accent: '#5b76e8', on: true,
+    { id: 'plan', name: '모아', role: '기획실장', zone: '기획실', accent: '#5b76e8', on: true,
       status: '내년 예산안 검토 중', line: '추경 예산안은 이번 주 안에 정리해 올리겠습니다.', anchor: [31, 47] },
-    { id: 'dev', name: '코다', role: '정보화 주무관', zone: '정보통신과', accent: '#e9932f', on: true,
+    { id: 'dev', name: '코다', role: '정보화 주무관', zone: '정보화과', accent: '#e9932f', on: true,
       status: '시 홈페이지 개편 자료 조사 중', line: '민원 시스템 점검 결과는 오후에 보고드리겠습니다.', anchor: [47, 53] },
     { id: 'ops', name: '하루', role: '총무과장', zone: '총무과', accent: '#2aa98a', on: true,
-      status: '청사 시설과 의전 준비 중', line: '간부회의 준비와 방문객 안내는 제가 챙겼습니다.', anchor: [64, 44] }
+      status: '청사 시설과 의전 준비 중', line: '회의 준비와 방문객 안내는 제가 챙겼습니다.', anchor: [64, 44] }
   ];
 
   var SPACES = [
     { id: 'chief', label: '비서실', x: 52, y: 40.5, kind: 'part', name: '비서실' },
-    { id: 'meeting', label: '간부회의실', x: 20.5, y: 43, kind: 'room' },
-    { id: 'plan', label: '기획예산과', x: 30, y: 69.5, kind: 'part' },
-    { id: 'dev', label: '정보통신과', x: 48.5, y: 60, kind: 'part' },
+    { id: 'meeting', label: '회의실', x: 20.5, y: 43, kind: 'room' },
+    { id: 'plan', label: '기획실', x: 30, y: 69.5, kind: 'part' },
+    { id: 'dev', label: '정보화과', x: 48.5, y: 60, kind: 'part' },
     { id: 'ops', label: '총무과', x: 64.5, y: 51, kind: 'part' },
-    { id: 'lounge', label: '민원·휴게실', x: 77.5, y: 71.5, kind: 'room' }
+    { id: 'lounge', label: '휴게실', x: 77.5, y: 71.5, kind: 'room' }
   ];
 
   var ROOMS = {
     meeting: {
-      title: '간부회의실',
-      desc: '시장님과 간부 공무원이 마주 앉는 회의실. 여기서 정한 일은 회의실 탭 대화로 바로 이어집니다.',
+      title: '회의실',
+      desc: '시장님과 부서장이 마주 앉는 회의실. 여기서 정한 일은 회의실 탭 대화로 바로 이어집니다.',
       status: '예약 없음 · 바로 사용할 수 있습니다',
       action: '회의실로 가기',
       prefill: ''
     },
     lounge: {
-      title: '민원·휴게실',
-      desc: '민원인과 직원이 함께 잠깐 쉬어가는 자리. 부서 사람들이 하루에 한 번씩 들릅니다.',
+      title: '휴게실',
+      desc: '직원들이 잠깐 쉬어가는 자리. 부서 사람들이 하루에 한 번씩 들릅니다.',
       status: '조용함 · 모두 업무 중',
       action: '직원들 격려 한마디',
       prefill: '다들 수고 많으십니다 ☕'
@@ -77,14 +77,14 @@
     chief: [
       '네, 시장님. 제가 먼저 정리해서 올려두겠습니다.',
       '확인했습니다. 부서별 우선순위를 정해 진행하겠습니다.',
-      '기획예산과·정보통신과·총무과 모두 움직이고 있습니다. 마무리되는 대로 보고드리겠습니다.',
+      '기획실·정보화과·총무과 모두 움직이고 있습니다. 마무리되는 대로 보고드리겠습니다.',
       '필요한 부분만 짚어 주시면 나머지는 제가 맞춰 두겠습니다.',
       '오늘은 제가 먼저 챙기고, 결재가 필요한 것만 올리겠습니다.'
     ],
     plan: [
       '일정 정리해서 보고드리겠습니다. 내일 오전에 한 번 더 확인하겠습니다.',
-      '이번 주 핵심은 화요일 간부회의와 목요일 시의회 보고입니다.',
-      '간부회의는 오후 2시로 잡아둘까요? 시장님 편한 시간 알려 주십시오.',
+      '이번 주 핵심은 화요일 회의와 목요일 시의회 보고입니다.',
+      '회의는 오후 2시로 잡아둘까요? 시장님 편한 시간 알려 주십시오.',
       '안건은 세 건으로 추렸습니다. 나머지는 다음 주로 넘겼습니다.',
       '비는 시간은 목요일 오전입니다. 그때 몰아서 잡아도 됩니다.'
     ],
@@ -114,17 +114,50 @@
   var ROLE_MAP = {
     '지휘': { role: '비서실장', zone: '비서실' },
     '지휘실': { role: '비서실장', zone: '비서실' },
-    '기획·일정': { role: '기획예산과장', zone: '기획예산과' },
-    '기획실': { role: '기획예산과장', zone: '기획예산과' },
-    '기획조정실': { role: '기획예산과장', zone: '기획예산과' },
-    '기획조정과': { role: '기획예산과장', zone: '기획예산과' },
-    '개발·리서치': { role: '정보화 주무관', zone: '정보통신과' },
-    '정보화과장': { role: '정보화 주무관', zone: '정보통신과' },
-    '정보화과': { role: '정보화 주무관', zone: '정보통신과' },
+    '기획·일정': { role: '기획실장', zone: '기획실' },
+    '기획조정실': { role: '기획실장', zone: '기획실' },
+    '기획조정과': { role: '기획실장', zone: '기획실' },
+    '기획예산과장': { role: '기획실장', zone: '기획실' },
+    '기획예산과': { role: '기획실장', zone: '기획실' },
+    '기획실': { role: '기획실장', zone: '기획실' },
+    '개발·리서치': { role: '정보화 주무관', zone: '정보화과' },
+    '정보통신과': { role: '정보화 주무관', zone: '정보화과' },
+    '정보화과장': { role: '정보화 주무관', zone: '정보화과' },
+    '정보화과': { role: '정보화 주무관', zone: '정보화과' },
     '총무·운영': { role: '총무과장', zone: '총무과' },
     '운영지원과장': { role: '총무과장', zone: '총무과' },
     '운영지원과': { role: '총무과장', zone: '총무과' }
   };
+
+  /* 화면 문구에 남은 옛 부서·공간 이름. 앞의 것부터 바꾸어 짧은 이름이 긴 이름을 가르지 않게 합니다. */
+  var TEXT_MAP = [
+    ['간부회의실', '회의실'],
+    ['민원·휴게실', '휴게실'],
+    ['민원휴게실', '휴게실'],
+    ['기획예산과장', '기획실장'],
+    ['기획예산과', '기획실'],
+    ['정보통신과', '정보화과'],
+    ['운영지원과장', '총무과장'],
+    ['운영지원과', '총무과']
+  ];
+
+  function renameText(s) {
+    var t = String(s == null ? '' : s);
+    for (var i = 0; i < TEXT_MAP.length; i++) t = t.split(TEXT_MAP[i][0]).join(TEXT_MAP[i][1]);
+    return t;
+  }
+
+  function renameList(list, field, skipMine) {
+    if (!Array.isArray(list)) return false;
+    var changed = false;
+    list.forEach(function (item) {
+      if (!item || typeof item !== 'object' || typeof item[field] !== 'string') return;
+      if (skipMine && item.mine) return;
+      var next = renameText(item[field]);
+      if (next !== item[field]) { item[field] = next; changed = true; }
+    });
+    return changed;
+  }
 
   /* 정식 직위별 부서 */
   var ROLE_ZONE = {};
@@ -141,7 +174,7 @@
     return { role: r, zone: z };
   }
 
-  /* 저장된 부서 목록의 직위·부서명을 정식 이름으로 맞춥니다. */
+  /* 저장된 부서 목록의 직위·부서명과 문구를 정식 이름으로 맞춥니다. */
   function normalizeParts(parts) {
     if (!Array.isArray(parts)) return { parts: parts, changed: false };
     var changed = false;
@@ -153,6 +186,11 @@
         p.zone = fixed.zone;
         changed = true;
       }
+      ['status', 'line'].forEach(function (field) {
+        if (typeof p[field] !== 'string') return;
+        var next = renameText(p[field]);
+        if (next !== p[field]) { p[field] = next; changed = true; }
+      });
       return p;
     });
     return { parts: out, changed: changed };
@@ -170,13 +208,15 @@
     return chat;
   }
 
-  /* 저장값을 시청 체계로 정리합니다. 이름·메모·대화 내용은 그대로 둡니다. */
+  /* 저장값을 시청 체계로 정리합니다. 이름·대화의 뜻은 그대로 두고 옛 부서·공간 이름만 지금 이름으로 바꿉니다. */
   function normalizeState(old) {
     if (!old || typeof old !== 'object') return { state: null, changed: false };
     var res = normalizeParts(old.parts);
     var owner = old.owner === '아사월님의 비서' ? '아사월님의 비서실' : old.owner;
+    var memosChanged = renameList(old.memos, 'text');
+    var chatChanged = renameList(old.chat, 'text', true);
     return {
-      changed: res.changed || owner !== old.owner,
+      changed: res.changed || memosChanged || chatChanged || owner !== old.owner,
       state: {
         name: old.name,
         owner: owner,
@@ -212,7 +252,7 @@
     memos: Array.isArray(saved.memos) ? saved.memos : [
       { id: uid(), text: '주간 업무보고 초안 마련 — 목요일 오전까지', done: false, by: '모아', at: Date.now() - 6e5 },
       { id: uid(), text: '시 홈페이지 개편 자료 정리해서 공유', done: false, by: '코다', at: Date.now() - 4e5 },
-      { id: uid(), text: '간부회의실 예약 · 방문객 안내 준비', done: true, by: '하루', at: Date.now() - 2e5 }
+      { id: uid(), text: '회의실 예약 · 방문객 안내 준비', done: true, by: '하루', at: Date.now() - 2e5 }
     ],
     chat: Array.isArray(saved.chat) ? saved.chat.slice(-60) : [],
     memoRev: saved.memoRev || Date.now()
@@ -623,12 +663,12 @@
 
   function openAddPart(editId) {
     var p = editId ? partById(editId) : null;
-    var roles = ['기획예산과장', '정보화 주무관', '총무과장', '공보담당관', '민원응대팀', '정책연구관'];
+    var roles = ['기획실장', '정보화 주무관', '총무과장', '공보담당관', '민원응대팀', '정책연구관'];
     openSheet(p ? 'AI 공무원 인사기록' : 'AI 공무원 임명',
       '<div class="field"><label for="apName">이름</label>' +
         '<input id="apName" maxlength="10" placeholder="예: 모아" value="' + esc(p ? p.name : '') + '" /></div>' +
       '<div class="field"><label for="apRole">소속 · 직위</label>' +
-        '<input id="apRole" maxlength="16" placeholder="예: 기획예산과장" value="' + esc(p ? p.role : '') + '" list="roleList" />' +
+        '<input id="apRole" maxlength="16" placeholder="예: 기획실장" value="' + esc(p ? p.role : '') + '" list="roleList" />' +
         '<datalist id="roleList">' + roles.map(function (r) { return '<option value="' + r + '">'; }).join('') + '</datalist></div>' +
       '<div class="field"><label for="apStatus">지금 하는 일</label>' +
         '<input id="apStatus" maxlength="40" placeholder="예: 내년 예산안 검토 중" value="' + esc(p ? p.status : '') + '" /></div>' +
@@ -840,7 +880,7 @@
   function roleMatches(p, cat) {
     if (p.id === cat) return true;
     var r = p.role || '';
-    if (cat === 'chief') return /비서|실장|지휘/.test(r);
+    if (cat === 'chief') return /비서|지휘/.test(r);
     if (cat === 'plan') return /기획|예산|일정|계획|의전|조례/.test(r);
     if (cat === 'dev') return /정보|통신|전산|개발|리서치|조사|분석|정책|통계/.test(r);
     if (cat === 'ops') return /총무|운영|관리|민원|공보|홍보|서무/.test(r);
@@ -1217,13 +1257,13 @@
   /* ── boot ──────────────────────────────── */
   if (S.chat.length === 0) {
     S.chat.push({
-      id: uid(), mine: false, name: '모아', role: '기획예산과장', accent: '#5b76e8',
+      id: uid(), mine: false, name: '모아', role: '기획실장', accent: '#5b76e8',
       text: '시장님, 이번 주 일정표 정리해서 올려두었습니다. 확인해 보시겠습니까?',
       at: Date.now() - 42e5
     });
     S.chat.push({
       id: uid(), mine: false, name: '하루', role: '총무과장', accent: '#2aa98a',
-      text: '간부회의 준비와 다과는 완료했습니다. 더 필요하신 것 있으면 말씀해 주십시오.',
+      text: '회의 준비와 다과는 완료했습니다. 더 필요하신 것 있으면 말씀해 주십시오.',
       at: Date.now() - 18e5
     });
   }
