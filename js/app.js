@@ -6,8 +6,8 @@
 (function () {
   'use strict';
 
-  var LS_KEY = 'cityhall-office-v5';
-  var LEGACY_KEY = 'cream-office-v4';
+  var LS_KEY = 'cityhall-office-v6';
+  var LEGACY_KEYS = ['cityhall-office-v5', 'cream-office-v4'];
   var $ = function (sel, root) { return (root || document).querySelector(sel); };
   var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
 
@@ -110,46 +110,96 @@
     '부르셨습니까. 바로 확인하겠습니다.'
   ];
 
+  /* 옛 이름 → 지금 시청 직위·부서. 회사 시절 이름과 중간에 저장된 이름을 모두 받아냅니다. */
   var ROLE_MAP = {
     '지휘': { role: '비서실장', zone: '비서실' },
+    '지휘실': { role: '비서실장', zone: '비서실' },
     '기획·일정': { role: '기획예산과장', zone: '기획예산과' },
+    '기획실': { role: '기획예산과장', zone: '기획예산과' },
+    '기획조정실': { role: '기획예산과장', zone: '기획예산과' },
+    '기획조정과': { role: '기획예산과장', zone: '기획예산과' },
     '개발·리서치': { role: '정보화 주무관', zone: '정보통신과' },
-    '총무·운영': { role: '총무과장', zone: '총무과' }
+    '정보화과장': { role: '정보화 주무관', zone: '정보통신과' },
+    '정보화과': { role: '정보화 주무관', zone: '정보통신과' },
+    '총무·운영': { role: '총무과장', zone: '총무과' },
+    '운영지원과장': { role: '총무과장', zone: '총무과' },
+    '운영지원과': { role: '총무과장', zone: '총무과' }
   };
 
-  function chatRoles(chat) {
-    if (!Array.isArray(chat)) return chat;
-    return chat.map(function (m) {
-      var map = ROLE_MAP[m.role];
-      if (map) m.role = map.role;
-      return m;
-    });
+  /* 정식 직위별 부서 */
+  var ROLE_ZONE = {};
+  DEFAULT_PARTS.forEach(function (p) { ROLE_ZONE[p.role] = p.zone; });
+
+  function normRole(role, zone) {
+    var r = String(role == null ? '' : role).trim();
+    var z = String(zone == null ? '' : zone).trim();
+    var hit = ROLE_MAP[r];
+    if (hit) { r = hit.role; z = hit.zone; }
+    var zoneHit = ROLE_MAP[z];
+    if (zoneHit) z = zoneHit.zone;
+    if (ROLE_ZONE[r]) z = ROLE_ZONE[r];
+    return { role: r, zone: z };
   }
 
-  /* 이전 회사 테마 저장값을 시청 테마로 옮깁니다. 메모와 대화는 그대로 둡니다. */
-  function migrateLegacy(old) {
-    if (!old) return null;
-    var parts = Array.isArray(old.parts) ? old.parts.map(function (p) {
-      var m = ROLE_MAP[p.role];
-      if (m) { p.role = m.role; p.zone = m.zone; }
-      var base = DEFAULT_PARTS.filter(function (x) { return x.id === p.id; })[0];
-      if (base) { p.status = base.status; p.line = base.line; p.anchor = base.anchor; }
+  /* 저장된 부서 목록의 직위·부서명을 정식 이름으로 맞춥니다. */
+  function normalizeParts(parts) {
+    if (!Array.isArray(parts)) return { parts: parts, changed: false };
+    var changed = false;
+    var out = parts.map(function (p) {
+      if (!p || typeof p !== 'object') return p;
+      var fixed = normRole(p.role, p.zone);
+      if (fixed.role !== p.role || fixed.zone !== p.zone) {
+        p.role = fixed.role;
+        p.zone = fixed.zone;
+        changed = true;
+      }
       return p;
-    }) : undefined;
+    });
+    return { parts: out, changed: changed };
+  }
+
+  /* 대화에 남은 옛 직위도 지금 이름으로 바꿉니다. */
+  function normalizeChat(chat) {
+    if (!Array.isArray(chat)) return chat;
+    chat.forEach(function (m) {
+      if (!m || typeof m !== 'object' || !m.role) return;
+      var hit = ROLE_MAP[String(m.role).trim()];
+      var role = hit ? hit.role : normRole(m.role, '').role;
+      if (role && role !== m.role) m.role = role;
+    });
+    return chat;
+  }
+
+  /* 저장값을 시청 체계로 정리합니다. 이름·메모·대화 내용은 그대로 둡니다. */
+  function normalizeState(old) {
+    if (!old || typeof old !== 'object') return { state: null, changed: false };
+    var res = normalizeParts(old.parts);
+    var owner = old.owner === '아사월님의 비서' ? '아사월님의 비서실' : old.owner;
     return {
-      name: old.name,
-      owner: old.owner === '아사월님의 비서' ? '아사월님의 비서실' : old.owner,
-      accent: old.accent, room: old.room,
-      motion: old.motion, parts: parts,
-      memos: old.memos, chat: chatRoles(old.chat), memoRev: old.memoRev
+      changed: res.changed || owner !== old.owner,
+      state: {
+        name: old.name,
+        owner: owner,
+        accent: old.accent, room: old.room,
+        motion: old.motion, parts: res.parts,
+        memos: old.memos, chat: normalizeChat(old.chat), memoRev: old.memoRev
+      }
     };
   }
 
   /* ── state ─────────────────────────────── */
   var params = new URLSearchParams(location.search);
-  var saved = store.json(LS_KEY, null);
-  if (!saved) saved = migrateLegacy(store.json(LEGACY_KEY, null));
-  saved = saved || {};
+  var loaded = store.json(LS_KEY, null);
+  var migrated = false;
+  if (!loaded) {
+    for (var lk = 0; lk < LEGACY_KEYS.length; lk++) {
+      loaded = store.json(LEGACY_KEYS[lk], null);
+      if (loaded) { migrated = true; break; }
+    }
+  }
+  var normalized = normalizeState(loaded);
+  var saved = normalized.state || {};
+  if (normalized.changed) migrated = true;
 
   var S = {
     name: saved.name || '크림',
@@ -183,6 +233,9 @@
   }
   var saveTimer = null;
   function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 250); }
+
+  /* 새 키로 옮겨 저장해 두면, 옛 저장값이 다시 화면을 덮지 않습니다. */
+  if (migrated) save();
 
   function level() {
     var sent = S.chat.filter(function (m) { return m.mine; }).length;
